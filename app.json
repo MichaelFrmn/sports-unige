@@ -1,0 +1,26 @@
+{
+  "expo": {
+    "name": "Sports UNIGE",
+    "slug": "sports-unige",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.mikefreeman.sportsunige"
+    },
+    "android": {
+      "package": "com.mikefreeman.sportsunige",
+      "adaptiveIcon": {
+        "backgroundColor": "#CF0063"
+      },
+      "permissions": []
+    },
+    "web": {
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-font"
+    ]
+  }
+}

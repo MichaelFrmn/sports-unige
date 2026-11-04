@@ -1,0 +1,36 @@
+# dependencies
+node_modules/
+
+# Expo
+.expo/
+dist/
+web-build/
+expo-env.d.ts
+
+# native folders are generated from app.json (expo prebuild)
+/android
+/ios
+
+# signing material — never commit
+*.jks
+*.keystore
+*.p8
+*.p12
+*.key
+*.mobileprovision
+credentials.json
+
+# local env / secrets
+.env
+.env*.local
+
+# build outputs
+*.apk
+*.aab
+*.ipa
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.idea/
+*.log
