@@ -4,6 +4,7 @@
     "slug": "sports-unige",
     "version": "1.0.0",
     "orientation": "portrait",
+    "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": true,
@@ -12,7 +13,8 @@
     "android": {
       "package": "com.mikefreeman.sportsunige",
       "adaptiveIcon": {
-        "backgroundColor": "#CF0063"
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#F20066"
       },
       "permissions": []
     },
@@ -21,6 +23,12 @@
     },
     "plugins": [
       "expo-font"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "edf1ae21-305e-44d1-a9c6-5ba2e1bc1486"
+      }
+    },
+    "owner": "michael.frmn"
   }
 }
