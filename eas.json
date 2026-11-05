@@ -5,9 +5,9 @@
   },
   "build": {
     "preview": {
-      "distribution": "internal",
       "autoIncrement": true,
-      "android": { "buildType": "apk" }
+      "android": { "distribution": "internal", "buildType": "apk" },
+      "ios": { "distribution": "store" }
     },
     "production": {
       "autoIncrement": true

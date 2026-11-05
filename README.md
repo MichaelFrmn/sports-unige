@@ -54,6 +54,38 @@ profile produces an AAB for the Play Store if ever needed.
 Keep the same Expo account and package id (`com.mikefreeman.sportsunige`):
 updates must be signed with the same key to install over a previous version.
 
+## Build & share (iOS / TestFlight)
+
+iOS has no APK equivalent, so sharing requires a paid **Apple Developer
+account** (99 USD/year, enrol at developer.apple.com) and goes through
+**TestFlight** instead of a direct link.
+
+One-time setup, after enrolling:
+
+```bash
+npx eas-cli build -p ios --profile preview
+```
+
+The first run asks to log in with your Apple ID and walks through creating
+the App Store Connect app record and signing credentials (EAS manages the
+certificates and provisioning profile for you — just answer the prompts).
+
+Then submit the finished build to TestFlight:
+
+```bash
+npx eas-cli submit -p ios --latest
+```
+
+In **App Store Connect → TestFlight**, add testers: internal (your team,
+instant) or an external group via a public link (Apple does a short "Beta App
+Review" the first time, usually a few hours). Testers install the **TestFlight**
+app from the App Store, open your invite, and install Sports UNIGE from there.
+
+Each build is usable for 90 days; push a new one before then to keep testers
+on a working build. The `preview` iOS profile targets TestFlight directly
+(`distribution: store`); there's no Android-style ad-hoc install link for iOS
+without registering every tester's device individually.
+
 ## How it talks to the site
 
 The site is an Oracle ADF + Shibboleth app with no API, so the app embeds it:
