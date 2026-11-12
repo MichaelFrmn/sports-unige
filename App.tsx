@@ -52,6 +52,17 @@ function SportsStack() {
   );
 }
 
+// A one-screen stack, not the tab navigator's own header, so both tabs render
+// their header through the same component — bottom-tabs' own header sizes
+// and positions things slightly differently from native-stack's.
+function RegistrationsStack() {
+  return (
+    <Stack.Navigator screenOptions={screenHeader}>
+      <Stack.Screen name="MyRegistrations" component={MyRegistrationsScreen} options={{ title: 'Mes inscriptions' }} />
+    </Stack.Navigator>
+  );
+}
+
 export default function App() {
   return (
     <SafeAreaProvider>
@@ -77,11 +88,7 @@ export default function App() {
           })}
         >
           <Tab.Screen name="Activités" component={SportsStack} />
-          <Tab.Screen
-            name="Mes inscriptions"
-            component={MyRegistrationsScreen}
-            options={{ headerShown: true, title: 'Mes inscriptions' }}
-          />
+          <Tab.Screen name="Mes inscriptions" component={RegistrationsStack} />
         </Tab.Navigator>
       </NavigationContainer>
       {/* Mounted once for the app's lifetime: it holds the UNIGE login session. */}
