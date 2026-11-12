@@ -45,7 +45,7 @@ const screenHeader = {
 function SportsStack() {
   return (
     <Stack.Navigator screenOptions={screenHeader}>
-      <Stack.Screen name="SportsList" component={SportsScreen} options={{ title: 'Sports' }} />
+      <Stack.Screen name="SportsList" component={SportsScreen} options={{ title: 'Sports', animation: 'none' }} />
       <Stack.Screen name="Slots" component={SlotsScreen} options={{ title: 'Séances' }} />
       <Stack.Screen name="Signup" component={SignupScreen} options={{ title: 'Inscription' }} />
     </Stack.Navigator>
@@ -58,7 +58,7 @@ function SportsStack() {
 function RegistrationsStack() {
   return (
     <Stack.Navigator screenOptions={screenHeader}>
-      <Stack.Screen name="MyRegistrations" component={MyRegistrationsScreen} options={{ title: 'Mes inscriptions' }} />
+      <Stack.Screen name="MyRegistrations" component={MyRegistrationsScreen} options={{ title: 'Mes inscriptions', animation: 'none' }} />
     </Stack.Navigator>
   );
 }
@@ -72,6 +72,7 @@ export default function App() {
           screenOptions={({ route }) => ({
             ...screenHeader,
             headerShown: false,
+            lazy: false,
             tabBarActiveTintColor: theme.colors.primary,
             tabBarInactiveTintColor: theme.colors.textMuted,
             tabBarIcon: ({ color, size, focused }) => (
