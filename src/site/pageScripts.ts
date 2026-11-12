@@ -319,3 +319,13 @@ export const CLICK_LOGOUT = `
   realClick(btn);
   return true;
 `;
+
+// After a logout click, Shibboleth SLO can't force-clear the IdP's own SSO
+// session from here (a known SAML logout limitation — the site itself tells
+// the user to close the whole browser to be sure). We can't do that either,
+// but we can stop sitting on this dead-end page: bounce back to the home URL
+// so the normal flow (silent SSO bounce, or a fresh login if the IdP session
+// really is gone too) continues on its own.
+export const IS_LOGOUT_CONFIRMATION = `
+  return /fermer tous les onglets/i.test(document.body ? document.body.textContent : '');
+`;

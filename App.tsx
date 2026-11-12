@@ -18,10 +18,28 @@ import { theme } from './src/theme';
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
 
+function LogoutButton() {
+  return (
+    <Pressable
+      hitSlop={8}
+      style={{ marginRight: 16 }}
+      onPress={() =>
+        Alert.alert('Se déconnecter ?', 'Vous devrez vous reconnecter au site UNIGE.', [
+          { text: 'Annuler', style: 'cancel' },
+          { text: 'Se déconnecter', style: 'destructive', onPress: () => logout() },
+        ])
+      }
+    >
+      <Ionicons name="log-out-outline" size={22} color="#fff" />
+    </Pressable>
+  );
+}
+
 const screenHeader = {
   headerStyle: { backgroundColor: theme.colors.primary },
   headerTintColor: '#fff',
   headerTitleStyle: { fontWeight: '800' as const },
+  headerRight: () => <LogoutButton />,
 };
 
 function SportsStack() {
@@ -62,24 +80,7 @@ export default function App() {
           <Tab.Screen
             name="Mes inscriptions"
             component={MyRegistrationsScreen}
-            options={{
-              headerShown: true,
-              title: 'Mes inscriptions',
-              headerRight: () => (
-                <Pressable
-                  hitSlop={8}
-                  style={{ marginRight: 16 }}
-                  onPress={() =>
-                    Alert.alert('Se déconnecter ?', 'Vous devrez vous reconnecter au site UNIGE.', [
-                      { text: 'Annuler', style: 'cancel' },
-                      { text: 'Se déconnecter', style: 'destructive', onPress: () => logout() },
-                    ])
-                  }
-                >
-                  <Ionicons name="log-out-outline" size={22} color="#fff" />
-                </Pressable>
-              ),
-            }}
+            options={{ headerShown: true, title: 'Mes inscriptions' }}
           />
         </Tab.Navigator>
       </NavigationContainer>

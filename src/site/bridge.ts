@@ -1,5 +1,5 @@
 import type { WebView, WebViewMessageEvent } from 'react-native-webview';
-import { HOME_URL, PAGE_HELPERS, PROBE, autoLoginStep } from './pageScripts';
+import { HOME_URL, IS_LOGOUT_CONFIRMATION, PAGE_HELPERS, PROBE, autoLoginStep } from './pageScripts';
 import { loadCredentials } from './credentials';
 
 // 'login' means the WebView is showing something other than the inscription
@@ -113,6 +113,15 @@ export const siteBridge = {
     if (probe.app) {
       setStatus('ready');
       return;
+    }
+
+    try {
+      if (await exec<boolean>(IS_LOGOUT_CONFIRMATION)) {
+        webView?.injectJavaScript(`location.href = ${JSON.stringify(HOME_URL)}; true;`);
+        return; // stay hidden; the resulting navigation triggers another onLoadEnd
+      }
+    } catch {
+      // Not that page (or the page errored) — fall through to normal handling.
     }
 
     const creds = await loadCredentials();
