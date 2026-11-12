@@ -69,6 +69,10 @@ export default function App() {
       <NavigationContainer>
         <StatusBar style="light" />
         <Tab.Navigator
+          // Android detaches inactive tabs from the view hierarchy by default to save
+          // memory; reattaching on switch-back is what was producing the snap-into-place
+          // flicker, especially with the native header's custom headerRight view.
+          detachInactiveScreens={false}
           screenOptions={({ route }) => ({
             ...screenHeader,
             headerShown: false,
