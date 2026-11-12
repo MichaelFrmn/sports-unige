@@ -259,3 +259,53 @@ export const READ_UNREGISTER_RESULT = `
   var msg = text($id(IDS.messages));
   return msg ? { kind: 'error', text: msg } : null;
 `;
+
+// --- Auto-login: WAYF institution picker -> Switch edu-ID email -> password.
+// Three separate page loads outside the UNIGE domain; bridge.ts drives one step per onLoadEnd.
+
+// The saved institution-picker page showed EPFL pre-selected for this account
+// (michael.freeman@epfl.ch is a Switch edu-ID / EPFL-federated identity, not a
+// UNIGE-issued one). If a different institution is ever needed, change this.
+const EPFL_ENTITY_ID = 'https://idp.epfl.ch/idp/shibboleth';
+
+export const autoLoginStep = (email: string, password: string) => `
+  var fill = function (el, val) {
+    el.value = val;
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+  };
+
+  if (location.hostname === 'wayf.switch.ch') {
+    var sel = $id('userIdPSelection');
+    if (!sel) return { step: 'wayf', acted: false };
+    sel.value = ${JSON.stringify(EPFL_ENTITY_ID)};
+    sel.dispatchEvent(new Event('change', { bubbles: true }));
+    await sleep(80);
+    var goBtn = document.querySelector('button[type="submit"][form="IdPList"]');
+    if (!goBtn) return { step: 'wayf', acted: false };
+    realClick(goBtn);
+    return { step: 'wayf', acted: true };
+  }
+
+  var passwordField = $id('password');
+  if (passwordField) {
+    fill(passwordField, ${JSON.stringify(password)});
+    await sleep(80);
+    var proceedBtn = $id('button-proceed') || document.querySelector('button[type="submit"][form="passwordForm"]');
+    if (!proceedBtn) return { step: 'password', acted: false };
+    realClick(proceedBtn);
+    return { step: 'password', acted: true };
+  }
+
+  var emailField = $id('username');
+  if (emailField) {
+    fill(emailField, ${JSON.stringify(email)});
+    await sleep(80);
+    var submitBtn = $id('button-submit') || document.querySelector('button[type="submit"][form="loginForm"]');
+    if (!submitBtn) return { step: 'email', acted: false };
+    realClick(submitBtn);
+    return { step: 'email', acted: true };
+  }
+
+  return { step: 'other', acted: false };
+`;

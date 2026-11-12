@@ -1,5 +1,6 @@
 import type { WebView, WebViewMessageEvent } from 'react-native-webview';
-import { HOME_URL, PAGE_HELPERS, PROBE } from './pageScripts';
+import { HOME_URL, PAGE_HELPERS, PROBE, autoLoginStep } from './pageScripts';
+import { loadCredentials } from './credentials';
 
 // 'login' means the WebView is showing something other than the inscription
 // app (Shibboleth login, an error page…) and the user has to deal with it.
@@ -12,6 +13,9 @@ type Pending = {
 };
 
 const COMMAND_TIMEOUT_MS = 30000;
+// If auto-login keeps landing on the same step (e.g. a rejected password), stop
+// retrying and show the real form instead of looping silently.
+const MAX_SAME_AUTO_LOGIN_STEP = 2;
 
 let webView: Pick<WebView, 'injectJavaScript'> | null = null;
 let status: SiteStatus = 'loading';
@@ -21,11 +25,19 @@ let nextId = 1;
 let readyWaiters: (() => void)[] = [];
 // ADF pages are stateful, so commands must never overlap.
 let queue: Promise<unknown> = Promise.resolve();
+let autoLoginStepSeen: string | null = null;
+let autoLoginStepCount = 0;
+
+function resetAutoLogin() {
+  autoLoginStepSeen = null;
+  autoLoginStepCount = 0;
+}
 
 function setStatus(s: SiteStatus) {
   if (s === status) return;
   status = s;
   if (s === 'ready') {
+    resetAutoLogin();
     readyWaiters.forEach((w) => w());
     readyWaiters = [];
   }
@@ -91,9 +103,33 @@ export const siteBridge = {
   },
 
   async onLoadEnd() {
+    let probe: { url: string; app: boolean };
     try {
-      const probe = await exec<{ url: string; app: boolean }>(PROBE);
-      setStatus(probe.app ? 'ready' : 'login');
+      probe = await exec<{ url: string; app: boolean }>(PROBE);
+    } catch {
+      setStatus('login');
+      return;
+    }
+    if (probe.app) {
+      setStatus('ready');
+      return;
+    }
+
+    const creds = await loadCredentials();
+    if (!creds) {
+      setStatus('login');
+      return;
+    }
+    try {
+      const result = await exec<{ step: string; acted: boolean }>(autoLoginStep(creds.email, creds.password));
+      autoLoginStepCount = result.step === autoLoginStepSeen ? autoLoginStepCount + 1 : 1;
+      autoLoginStepSeen = result.step;
+      const stuck = autoLoginStepCount > MAX_SAME_AUTO_LOGIN_STEP;
+      if (!result.acted || result.step === 'other' || stuck) {
+        setStatus('login'); // unrecognised page, or auto-login isn't making progress — let the user take over
+        return;
+      }
+      // Acted on a step: a navigation is coming, stay hidden while it loads.
     } catch {
       setStatus('login');
     }
@@ -152,6 +188,7 @@ export const siteBridge = {
 
   /** Navigates to the home page immediately, whatever state the page is in. */
   goHome() {
+    resetAutoLogin();
     setStatus('loading');
     webView?.injectJavaScript(`location.href = ${JSON.stringify(HOME_URL)}; true;`);
   },

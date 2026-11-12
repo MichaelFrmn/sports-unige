@@ -30,6 +30,29 @@ npm start          # then scan the QR code with Expo Go (iOS / Android)
 
 Web is not supported: the app relies on `react-native-webview`.
 
+## Auto-login
+
+The site logs you out roughly daily (its own policy, not something the app
+controls). From the login screen, **"Connexion auto"** lets you save your
+Switch edu-ID e-mail and password; the app then replays the login flow itself
+(institution picker → Switch edu-ID → password) whenever the session expires,
+so you only ever see a brief flash instead of the form.
+
+- Credentials are kept in the OS-level encrypted keychain
+  (`expo-secure-store`: Android Keystore / iOS Keychain), typed into the
+  site's own login form exactly like you would, never sent anywhere else.
+- This stores your real UNIGE/Switch password on the device. For a personal
+  phone that's a reasonable trade for not retyping it daily, but it is a real
+  step up in risk over the rest of the app (which never touches your
+  password) if the device itself is ever compromised. Use "Oublier ces
+  identifiants" in the same screen to remove it.
+- Doesn't cover MFA/2FA if your account ever requires it — that screen isn't
+  automated, so it would stop at that page for you to approve manually.
+- `src/site/credentials.ts` stores them; `autoLoginStep` in
+  `src/site/pageScripts.ts` drives the three pages, keyed on an EPFL
+  Switch edu-ID flow — if the institution picker or login pages change, or a
+  different institution is involved, that's the script to update.
+
 ## Build & share (Android APK)
 
 Builds run on EAS (Expo's build service), which also keeps the signing key.

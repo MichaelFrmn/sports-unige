@@ -22,7 +22,9 @@
       "bundler": "metro"
     },
     "plugins": [
-      "expo-font"
+      "expo-font",
+      "expo-secure-store",
+      "expo-status-bar"
     ],
     "extra": {
       "eas": {
