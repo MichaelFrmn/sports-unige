@@ -45,20 +45,11 @@ const screenHeader = {
 function SportsStack() {
   return (
     <Stack.Navigator screenOptions={screenHeader}>
-      <Stack.Screen name="SportsList" component={SportsScreen} options={{ title: 'Sports', animation: 'none' }} />
+      {/* No native header here: it's rendered as part of SportsScreen itself
+          (see AppHeader) so switching tabs never touches a native Toolbar. */}
+      <Stack.Screen name="SportsList" component={SportsScreen} options={{ headerShown: false }} />
       <Stack.Screen name="Slots" component={SlotsScreen} options={{ title: 'Séances' }} />
       <Stack.Screen name="Signup" component={SignupScreen} options={{ title: 'Inscription' }} />
-    </Stack.Navigator>
-  );
-}
-
-// A one-screen stack, not the tab navigator's own header, so both tabs render
-// their header through the same component — bottom-tabs' own header sizes
-// and positions things slightly differently from native-stack's.
-function RegistrationsStack() {
-  return (
-    <Stack.Navigator screenOptions={screenHeader}>
-      <Stack.Screen name="MyRegistrations" component={MyRegistrationsScreen} options={{ title: 'Mes inscriptions', animation: 'none' }} />
     </Stack.Navigator>
   );
 }
@@ -69,14 +60,8 @@ export default function App() {
       <NavigationContainer>
         <StatusBar style="light" />
         <Tab.Navigator
-          // Android detaches inactive tabs from the view hierarchy by default to save
-          // memory; reattaching on switch-back is what was producing the snap-into-place
-          // flicker, especially with the native header's custom headerRight view.
-          detachInactiveScreens={false}
           screenOptions={({ route }) => ({
-            ...screenHeader,
             headerShown: false,
-            lazy: false,
             tabBarActiveTintColor: theme.colors.primary,
             tabBarInactiveTintColor: theme.colors.textMuted,
             tabBarIcon: ({ color, size, focused }) => (
@@ -93,7 +78,9 @@ export default function App() {
           })}
         >
           <Tab.Screen name="Activités" component={SportsStack} />
-          <Tab.Screen name="Mes inscriptions" component={RegistrationsStack} />
+          {/* Single screen, no further navigation: it renders its own header
+              (AppHeader) directly, no nested stack/native header needed. */}
+          <Tab.Screen name="Mes inscriptions" component={MyRegistrationsScreen} />
         </Tab.Navigator>
       </NavigationContainer>
       {/* Mounted once for the app's lifetime: it holds the UNIGE login session. */}
