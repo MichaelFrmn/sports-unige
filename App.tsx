@@ -5,12 +5,14 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { Pressable, Alert } from 'react-native';
 
 import { SportsScreen } from './src/screens/SportsScreen';
 import { SlotsScreen } from './src/screens/SlotsScreen';
 import { SignupScreen } from './src/screens/SignupScreen';
 import { MyRegistrationsScreen } from './src/screens/MyRegistrationsScreen';
 import { SiteWebView } from './src/site/SiteWebView';
+import { logout } from './src/services/siteService';
 import { theme } from './src/theme';
 
 const Stack = createNativeStackNavigator();
@@ -60,7 +62,24 @@ export default function App() {
           <Tab.Screen
             name="Mes inscriptions"
             component={MyRegistrationsScreen}
-            options={{ headerShown: true, title: 'Mes inscriptions' }}
+            options={{
+              headerShown: true,
+              title: 'Mes inscriptions',
+              headerRight: () => (
+                <Pressable
+                  hitSlop={8}
+                  style={{ marginRight: 16 }}
+                  onPress={() =>
+                    Alert.alert('Se déconnecter ?', 'Vous devrez vous reconnecter au site UNIGE.', [
+                      { text: 'Annuler', style: 'cancel' },
+                      { text: 'Se déconnecter', style: 'destructive', onPress: () => logout() },
+                    ])
+                  }
+                >
+                  <Ionicons name="log-out-outline" size={22} color="#fff" />
+                </Pressable>
+              ),
+            }}
           />
         </Tab.Navigator>
       </NavigationContainer>

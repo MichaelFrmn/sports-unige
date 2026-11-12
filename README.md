@@ -52,6 +52,10 @@ so you only ever see a brief flash instead of the form.
   `src/site/pageScripts.ts` drives the three pages, keyed on an EPFL
   Switch edu-ID flow — if the institution picker or login pages change, or a
   different institution is involved, that's the script to update.
+- A **logout button** (top-right of "Mes inscriptions") clicks the site's own
+  "Déconnexion" link, forcing a fresh login on the next load — mainly there to
+  test auto-login on demand instead of waiting for the site's own daily
+  timeout.
 
 ## Build & share (Android APK)
 

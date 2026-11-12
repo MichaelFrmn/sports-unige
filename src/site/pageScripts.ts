@@ -309,3 +309,13 @@ export const autoLoginStep = (email: string, password: string) => `
 
   return { step: 'other', acted: false };
 `;
+
+// --- Logout: clicks the ADF app's own "Déconnexion" link, present on every page of the app.
+
+export const CLICK_LOGOUT = `
+  await waitFor(adfIdle, 10000, 'chargement');
+  var btn = document.getElementById('pt1:pt_uah1:dc_gl1');
+  if (!btn) throw new Error('Lien de déconnexion introuvable sur la page.');
+  realClick(btn);
+  return true;
+`;

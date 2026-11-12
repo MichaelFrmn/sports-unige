@@ -1,6 +1,7 @@
 import { Registration, SignupForm, Slot, parsePrice, parseSiteDate } from '../types';
 import { siteBridge } from '../site/bridge';
 import {
+  CLICK_LOGOUT,
   IS_HOME,
   LIST_SPORTS,
   READ_REGISTRATIONS,
@@ -159,4 +160,9 @@ export async function unregister(target: Target): Promise<string> {
   throw clickError instanceof Error
     ? clickError
     : new SignupError('UNKNOWN', result?.text || "Le site n'a pas confirmé la désinscription.");
+}
+
+/** Clicks the site's own "Déconnexion" link. Forces the next load to require a fresh login. */
+export function logout(): Promise<void> {
+  return siteBridge.run<boolean>(CLICK_LOGOUT).then(() => undefined);
 }
