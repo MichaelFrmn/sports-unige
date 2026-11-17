@@ -310,27 +310,10 @@ export const autoLoginStep = (email: string, password: string) => `
   return { step: 'other', acted: false };
 `;
 
-// --- Logout: clicks the ADF app's own "Déconnexion" link, present on every page of the app.
-
-export const CLICK_LOGOUT = `
-  await waitFor(adfIdle, 10000, 'chargement');
-  var btn = document.getElementById('pt1:pt_uah1:dc_gl1');
-  if (!btn) throw new Error('Lien de déconnexion introuvable sur la page.');
-  realClick(btn);
-  return true;
-`;
-
-// After a logout click, Shibboleth SLO can't force-clear the IdP's own SSO
-// session from here (a known SAML logout limitation — the site itself tells
-// the user to close the whole browser to be sure). We can't do that either,
-// but we can stop sitting on this dead-end page: bounce back to the home URL
-// so the normal flow (silent SSO bounce, or a fresh login if the IdP session
-// really is gone too) continues on its own.
+// The site's "Déconnexion" lands on a dead-end SWITCHaai page telling the user to
+// close their browser. If the WebView ever ends up there, bounce back home so the
+// normal flow continues instead of sitting on it.
 export const IS_LOGOUT_CONFIRMATION = `
   return /fermer tous les onglets/i.test(document.body ? document.body.textContent : '');
 `;
 
-// The site's own Shibboleth login handler, asking the IdP to re-authenticate even if
-// its SSO session is still alive (the site's logout only ends the UNIGE-side session).
-export const FORCED_LOGIN_URL =
-  'https://wwwi.unige.ch/service/sport/Shibboleth.sso/Login?forceAuthn=true&target=' + encodeURIComponent(HOME_URL);

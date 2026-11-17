@@ -52,11 +52,13 @@ so you only ever see a brief flash instead of the form.
   `src/site/pageScripts.ts` drives the three pages, keyed on an EPFL
   Switch edu-ID flow — if the institution picker or login pages change, or a
   different institution is involved, that's the script to update.
-- The **logout button** (top-right of both tabs) clicks the site's own
-  "Déconnexion", then opens the site's login with forced re-authentication
-  (the site's logout alone leaves the Switch edu-ID session alive) and pauses
-  auto-login, so you end on the login screen. "Recharger" or logging in
-  manually resumes auto-login.
+- The **logout button** (top-right of both tabs) remounts the site WebView in
+  incognito mode, which on Android wipes all its cookies — the UNIGE session
+  and the Switch edu-ID one (the site's own "Déconnexion" leaves the latter
+  alive, so you'd be signed straight back in). Auto-login is paused, so you end
+  on the login screen; "Recharger" or logging in manually resumes it. Saved
+  credentials are kept. On iOS, incognito only isolates that WebView instead
+  of wiping, so after an app restart you'd be logged in again.
 
 ## Build & share (Android APK)
 

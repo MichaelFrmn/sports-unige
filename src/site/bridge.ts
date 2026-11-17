@@ -1,7 +1,5 @@
 import type { WebView, WebViewMessageEvent } from 'react-native-webview';
 import {
-  CLICK_LOGOUT,
-  FORCED_LOGIN_URL,
   HOME_URL,
   IS_LOGOUT_CONFIRMATION,
   PAGE_HELPERS,
@@ -43,8 +41,10 @@ let autoLoginStepSeen: string | null = null;
 let autoLoginStepCount = 0;
 let autoLoginActions = 0;
 // Set by an explicit logout: show the login screen instead of logging straight back in.
-let logoutRequested = false;
 let autoLoginPaused = false;
+// Bumped on logout; SiteWebView remounts its WebView in incognito mode, which on
+// Android wipes every cookie (UNIGE and Switch edu-ID sessions alike).
+let generation = 0;
 
 function resetAutoLogin() {
   autoLoginStepSeen = null;
@@ -57,7 +57,6 @@ function setStatus(s: SiteStatus) {
   status = s;
   if (s === 'ready') {
     resetAutoLogin();
-    logoutRequested = false;
     autoLoginPaused = false;
     readyWaiters.forEach((w) => w());
     readyWaiters = [];
@@ -106,6 +105,7 @@ function enqueue<T>(task: () => Promise<T>): Promise<T> {
 
 export const siteBridge = {
   getStatus: () => status,
+  getGeneration: () => generation,
 
   subscribe(listener: () => void) {
     listeners.add(listener);
@@ -144,9 +144,7 @@ export const siteBridge = {
     try {
       if (await exec<boolean>(IS_LOGOUT_CONFIRMATION)) {
         autoLoginActions += 1;
-        const next = logoutRequested ? FORCED_LOGIN_URL : HOME_URL;
-        logoutRequested = false;
-        webView?.injectJavaScript(`location.href = ${JSON.stringify(next)}; true;`);
+        webView?.injectJavaScript(`location.href = ${JSON.stringify(HOME_URL)}; true;`);
         return; // stay hidden; the resulting navigation triggers another onLoadEnd
       }
     } catch {
@@ -225,15 +223,18 @@ export const siteBridge = {
     }
   },
 
-  /** Clicks the site's "Déconnexion" and ends on the login screen, without auto-login. */
-  logout(): Promise<void> {
-    return enqueue(async () => {
-      await waitReady();
-      logoutRequested = true;
-      autoLoginPaused = true;
-      // The click navigates away, which may reject this call before its reply arrives.
-      await exec<boolean>(CLICK_LOGOUT).catch(() => undefined);
-    });
+  /**
+   * Wipes the WebView's cookies (via a remount in incognito mode) and ends on the
+   * login screen with auto-login paused. The site's own "Déconnexion" can't do this:
+   * it leaves the Switch edu-ID session alive, so the next load signs straight back in.
+   */
+  logout() {
+    resetAutoLogin();
+    autoLoginPaused = true;
+    rejectAll('Déconnecté.');
+    generation += 1;
+    status = 'loading';
+    listeners.forEach((l) => l());
   },
 
   /** Navigates to the home page immediately, whatever state the page is in. */

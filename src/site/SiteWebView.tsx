@@ -17,6 +17,7 @@ export function useSiteStatus() {
 
 export function SiteWebView() {
   const status = useSiteStatus();
+  const generation = useSyncExternalStore(siteBridge.subscribe, siteBridge.getGeneration);
   const shown = status === 'login';
   const [promptOpen, setPromptOpen] = useState(false);
 
@@ -37,6 +38,10 @@ export function SiteWebView() {
         </View>
       </SafeAreaView>
       <WebView<{}>
+        // A logout bumps the generation: the WebView remounts in incognito mode, which
+        // wipes all cookies on Android, so the next load needs a full fresh login.
+        key={generation}
+        incognito={generation > 0}
         ref={siteBridge.attach}
         source={{ uri: HOME_URL }}
         userAgent={DESKTOP_UA}

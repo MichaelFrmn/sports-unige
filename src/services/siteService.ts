@@ -162,6 +162,6 @@ export async function unregister(target: Target): Promise<string> {
 }
 
 /** Clicks the site's own "Déconnexion" link. Forces the next load to require a fresh login. */
-export function logout(): Promise<void> {
-  return siteBridge.logout();
+export function logout(): void {
+  siteBridge.logout();
 }

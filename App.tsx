@@ -32,7 +32,7 @@ function LogoutButton() {
       onPress={() =>
         Alert.alert('Se déconnecter ?', 'Vous devrez vous reconnecter au site UNIGE.', [
           { text: 'Annuler', style: 'cancel' },
-          { text: 'Se déconnecter', style: 'destructive', onPress: () => logout().catch(() => undefined) },
+          { text: 'Se déconnecter', style: 'destructive', onPress: logout },
         ])
       }
     >
