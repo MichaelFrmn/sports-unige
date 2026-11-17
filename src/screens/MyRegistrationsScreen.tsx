@@ -4,7 +4,6 @@ import { View, Text, SectionList, StyleSheet, RefreshControl, Pressable, Activit
 import { listMyRegistrations } from '../services/siteService';
 import { useSiteQuery } from '../hooks/useSiteQuery';
 import { QueryState } from '../components/QueryState';
-import { AppHeader } from '../components/AppHeader';
 import { Badge } from '../components/Badge';
 import { SlotSummary } from '../components/SlotSummary';
 import { useUnregister } from '../hooks/useUnregister';
@@ -28,14 +27,7 @@ export function MyRegistrationsScreen() {
     }, [])
   );
 
-  if (!data) {
-    return (
-      <>
-        <AppHeader title="Mes inscriptions" />
-        <QueryState error={error} onRetry={refresh} />
-      </>
-    );
-  }
+  if (!data) return <QueryState error={error} onRetry={refresh} />;
 
   const upcoming = data.filter((r) => !isPast(r.date)).sort((a, b) => a.date.localeCompare(b.date));
   const past = data.filter((r) => isPast(r.date)).sort((a, b) => b.date.localeCompare(a.date));
@@ -46,7 +38,6 @@ export function MyRegistrationsScreen() {
 
   return (
     <View style={styles.container}>
-      <AppHeader title="Mes inscriptions" />
       {error && <Text style={styles.error}>{error}</Text>}
       <SectionList
         sections={sections}

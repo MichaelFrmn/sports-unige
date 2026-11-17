@@ -329,3 +329,8 @@ export const CLICK_LOGOUT = `
 export const IS_LOGOUT_CONFIRMATION = `
   return /fermer tous les onglets/i.test(document.body ? document.body.textContent : '');
 `;
+
+// The site's own Shibboleth login handler, asking the IdP to re-authenticate even if
+// its SSO session is still alive (the site's logout only ends the UNIGE-side session).
+export const FORCED_LOGIN_URL =
+  'https://wwwi.unige.ch/service/sport/Shibboleth.sso/Login?forceAuthn=true&target=' + encodeURIComponent(HOME_URL);

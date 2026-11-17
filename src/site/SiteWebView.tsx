@@ -53,7 +53,10 @@ export function SiteWebView() {
 
 const styles = StyleSheet.create({
   shown: { zIndex: 10, elevation: 10, backgroundColor: theme.colors.surface },
-  hidden: { opacity: 0 },
+  // Not opacity: 0 — a transparent WebView over the app forces Android to recomposite
+  // it on every change underneath (tab switches), which flickers. Instead it's rendered
+  // before the navigator in App.tsx, so the app's opaque screens simply cover it.
+  hidden: {},
   header: {
     flexDirection: 'row',
     alignItems: 'center',

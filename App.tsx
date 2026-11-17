@@ -18,6 +18,12 @@ import { theme } from './src/theme';
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
 
+const header = {
+  headerStyle: { backgroundColor: theme.colors.primary },
+  headerTintColor: '#fff',
+  headerTitleStyle: { fontWeight: '800' as const },
+};
+
 function LogoutButton() {
   return (
     <Pressable
@@ -26,7 +32,7 @@ function LogoutButton() {
       onPress={() =>
         Alert.alert('Se déconnecter ?', 'Vous devrez vous reconnecter au site UNIGE.', [
           { text: 'Annuler', style: 'cancel' },
-          { text: 'Se déconnecter', style: 'destructive', onPress: () => logout() },
+          { text: 'Se déconnecter', style: 'destructive', onPress: () => logout().catch(() => undefined) },
         ])
       }
     >
@@ -35,60 +41,47 @@ function LogoutButton() {
   );
 }
 
-const screenHeader = {
-  headerStyle: { backgroundColor: theme.colors.primary },
-  headerTintColor: '#fff',
-  headerTitleStyle: { fontWeight: '800' as const },
-  headerRight: () => <LogoutButton />,
-};
-
-function SportsStack() {
+function Tabs() {
   return (
-    <Stack.Navigator screenOptions={screenHeader}>
-      {/* No native header here: it's rendered as part of SportsScreen itself
-          (see AppHeader) so switching tabs never touches a native Toolbar. */}
-      <Stack.Screen name="SportsList" component={SportsScreen} options={{ headerShown: false }} />
-      <Stack.Screen name="Slots" component={SlotsScreen} options={{ title: 'Séances' }} />
-      <Stack.Screen name="Signup" component={SignupScreen} options={{ title: 'Inscription' }} />
-    </Stack.Navigator>
+    <Tab.Navigator
+      screenOptions={({ route }) => ({
+        ...header,
+        headerRight: () => <LogoutButton />,
+        lazy: false,
+        tabBarActiveTintColor: theme.colors.primary,
+        tabBarInactiveTintColor: theme.colors.textMuted,
+        tabBarIcon: ({ color, size, focused }) => (
+          <Ionicons
+            name={
+              route.name === 'Activités'
+                ? focused ? 'barbell' : 'barbell-outline'
+                : focused ? 'calendar-clear' : 'calendar-clear-outline'
+            }
+            size={size}
+            color={color}
+          />
+        ),
+      })}
+    >
+      <Tab.Screen name="Activités" component={SportsScreen} />
+      <Tab.Screen name="Mes inscriptions" component={MyRegistrationsScreen} />
+    </Tab.Navigator>
   );
 }
 
 export default function App() {
   return (
     <SafeAreaProvider>
+      {/* Rendered first so it sits underneath the app; it only comes to the front for login. */}
+      <SiteWebView />
       <NavigationContainer>
         <StatusBar style="light" />
-        <Tab.Navigator
-          screenOptions={({ route }) => ({
-            headerShown: false,
-            // Both tabs mount immediately instead of on first visit, so the
-            // first switch to a tab doesn't show its one-time initial-mount
-            // layout settle (insets, first data fetch) as a flicker.
-            lazy: false,
-            tabBarActiveTintColor: theme.colors.primary,
-            tabBarInactiveTintColor: theme.colors.textMuted,
-            tabBarIcon: ({ color, size, focused }) => (
-              <Ionicons
-                name={
-                  route.name === 'Activités'
-                    ? focused ? 'barbell' : 'barbell-outline'
-                    : focused ? 'calendar-clear' : 'calendar-clear-outline'
-                }
-                size={size}
-                color={color}
-              />
-            ),
-          })}
-        >
-          <Tab.Screen name="Activités" component={SportsStack} />
-          {/* Single screen, no further navigation: it renders its own header
-              (AppHeader) directly, no nested stack/native header needed. */}
-          <Tab.Screen name="Mes inscriptions" component={MyRegistrationsScreen} />
-        </Tab.Navigator>
+        <Stack.Navigator screenOptions={header}>
+          <Stack.Screen name="Tabs" component={Tabs} options={{ headerShown: false }} />
+          <Stack.Screen name="Slots" component={SlotsScreen} options={{ title: 'Séances' }} />
+          <Stack.Screen name="Signup" component={SignupScreen} options={{ title: 'Inscription' }} />
+        </Stack.Navigator>
       </NavigationContainer>
-      {/* Mounted once for the app's lifetime: it holds the UNIGE login session. */}
-      <SiteWebView />
     </SafeAreaProvider>
   );
 }

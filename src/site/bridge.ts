@@ -1,5 +1,13 @@
 import type { WebView, WebViewMessageEvent } from 'react-native-webview';
-import { HOME_URL, IS_LOGOUT_CONFIRMATION, PAGE_HELPERS, PROBE, autoLoginStep } from './pageScripts';
+import {
+  CLICK_LOGOUT,
+  FORCED_LOGIN_URL,
+  HOME_URL,
+  IS_LOGOUT_CONFIRMATION,
+  PAGE_HELPERS,
+  PROBE,
+  autoLoginStep,
+} from './pageScripts';
 import { loadCredentials } from './credentials';
 
 // 'login' means the WebView is showing something other than the inscription
@@ -34,6 +42,9 @@ let queue: Promise<unknown> = Promise.resolve();
 let autoLoginStepSeen: string | null = null;
 let autoLoginStepCount = 0;
 let autoLoginActions = 0;
+// Set by an explicit logout: show the login screen instead of logging straight back in.
+let logoutRequested = false;
+let autoLoginPaused = false;
 
 function resetAutoLogin() {
   autoLoginStepSeen = null;
@@ -46,6 +57,8 @@ function setStatus(s: SiteStatus) {
   status = s;
   if (s === 'ready') {
     resetAutoLogin();
+    logoutRequested = false;
+    autoLoginPaused = false;
     readyWaiters.forEach((w) => w());
     readyWaiters = [];
   }
@@ -131,14 +144,16 @@ export const siteBridge = {
     try {
       if (await exec<boolean>(IS_LOGOUT_CONFIRMATION)) {
         autoLoginActions += 1;
-        webView?.injectJavaScript(`location.href = ${JSON.stringify(HOME_URL)}; true;`);
+        const next = logoutRequested ? FORCED_LOGIN_URL : HOME_URL;
+        logoutRequested = false;
+        webView?.injectJavaScript(`location.href = ${JSON.stringify(next)}; true;`);
         return; // stay hidden; the resulting navigation triggers another onLoadEnd
       }
     } catch {
       // Not that page (or the page errored) — fall through to normal handling.
     }
 
-    const creds = await loadCredentials();
+    const creds = autoLoginPaused ? null : await loadCredentials();
     if (!creds) {
       setStatus('login');
       return;
@@ -210,9 +225,21 @@ export const siteBridge = {
     }
   },
 
+  /** Clicks the site's "Déconnexion" and ends on the login screen, without auto-login. */
+  logout(): Promise<void> {
+    return enqueue(async () => {
+      await waitReady();
+      logoutRequested = true;
+      autoLoginPaused = true;
+      // The click navigates away, which may reject this call before its reply arrives.
+      await exec<boolean>(CLICK_LOGOUT).catch(() => undefined);
+    });
+  },
+
   /** Navigates to the home page immediately, whatever state the page is in. */
   goHome() {
     resetAutoLogin();
+    autoLoginPaused = false;
     setStatus('loading');
     webView?.injectJavaScript(`location.href = ${JSON.stringify(HOME_URL)}; true;`);
   },

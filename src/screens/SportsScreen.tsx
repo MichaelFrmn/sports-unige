@@ -3,27 +3,18 @@ import { View, Text, FlatList, StyleSheet, RefreshControl, TextInput, Pressable 
 import { listSports } from '../services/siteService';
 import { useSiteQuery } from '../hooks/useSiteQuery';
 import { QueryState } from '../components/QueryState';
-import { AppHeader } from '../components/AppHeader';
 import { theme } from '../theme';
 
 export function SportsScreen({ navigation }: any) {
   const { data, error, refreshing, refresh } = useSiteQuery(() => listSports());
   const [query, setQuery] = useState('');
 
-  if (!data) {
-    return (
-      <>
-        <AppHeader title="Activités" />
-        <QueryState error={error} onRetry={refresh} />
-      </>
-    );
-  }
+  if (!data) return <QueryState error={error} onRetry={refresh} />;
 
   const filtered = data.filter((s) => s.toLowerCase().includes(query.trim().toLowerCase()));
 
   return (
     <View style={styles.container}>
-      <AppHeader title="Activités" />
       <TextInput
         placeholder="Rechercher un sport…"
         placeholderTextColor={theme.colors.textMuted}

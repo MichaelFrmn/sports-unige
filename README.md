@@ -52,10 +52,11 @@ so you only ever see a brief flash instead of the form.
   `src/site/pageScripts.ts` drives the three pages, keyed on an EPFL
   Switch edu-ID flow — if the institution picker or login pages change, or a
   different institution is involved, that's the script to update.
-- A **logout button** (top-right of "Mes inscriptions") clicks the site's own
-  "Déconnexion" link, forcing a fresh login on the next load — mainly there to
-  test auto-login on demand instead of waiting for the site's own daily
-  timeout.
+- The **logout button** (top-right of both tabs) clicks the site's own
+  "Déconnexion", then opens the site's login with forced re-authentication
+  (the site's logout alone leaves the Switch edu-ID session alive) and pauses
+  auto-login, so you end on the login screen. "Recharger" or logging in
+  manually resumes auto-login.
 
 ## Build & share (Android APK)
 
@@ -151,6 +152,6 @@ src/site/                        WebView, bridge, page scripts
 src/services/siteService.ts      the single boundary used by screens
 src/hooks/useSiteQuery.ts        loading / error / refresh state
 src/screens/*                    sports, slots, signup, my registrations
-src/components/*                 Badge, QueryState
+src/components/*                 Badge, QueryState, SlotSummary, CredentialsPrompt
 src/types.ts                     Slot / Registration + date/price helpers
 ```
