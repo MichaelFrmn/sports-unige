@@ -16,6 +16,12 @@ const COMMAND_TIMEOUT_MS = 30000;
 // If auto-login keeps landing on the same step (e.g. a rejected password), stop
 // retrying and show the real form instead of looping silently.
 const MAX_SAME_AUTO_LOGIN_STEP = 2;
+// Backstop across the whole auto-login/bounce sequence, regardless of pattern —
+// an alternating loop (e.g. password page -> logout-confirmation page -> password
+// page -> ...) would never repeat the same step twice in a row, so it would never
+// trip MAX_SAME_AUTO_LOGIN_STEP on its own and could otherwise retry forever,
+// reloading real pages on the site with no delay between attempts.
+const MAX_AUTO_ACTIONS = 6;
 
 let webView: Pick<WebView, 'injectJavaScript'> | null = null;
 let status: SiteStatus = 'loading';
@@ -27,10 +33,12 @@ let readyWaiters: (() => void)[] = [];
 let queue: Promise<unknown> = Promise.resolve();
 let autoLoginStepSeen: string | null = null;
 let autoLoginStepCount = 0;
+let autoLoginActions = 0;
 
 function resetAutoLogin() {
   autoLoginStepSeen = null;
   autoLoginStepCount = 0;
+  autoLoginActions = 0;
 }
 
 function setStatus(s: SiteStatus) {
@@ -115,8 +123,14 @@ export const siteBridge = {
       return;
     }
 
+    if (autoLoginActions >= MAX_AUTO_ACTIONS) {
+      setStatus('login'); // too many automatic steps without reaching the app — let the user take over
+      return;
+    }
+
     try {
       if (await exec<boolean>(IS_LOGOUT_CONFIRMATION)) {
+        autoLoginActions += 1;
         webView?.injectJavaScript(`location.href = ${JSON.stringify(HOME_URL)}; true;`);
         return; // stay hidden; the resulting navigation triggers another onLoadEnd
       }
@@ -133,6 +147,7 @@ export const siteBridge = {
       const result = await exec<{ step: string; acted: boolean }>(autoLoginStep(creds.email, creds.password));
       autoLoginStepCount = result.step === autoLoginStepSeen ? autoLoginStepCount + 1 : 1;
       autoLoginStepSeen = result.step;
+      autoLoginActions += 1;
       const stuck = autoLoginStepCount > MAX_SAME_AUTO_LOGIN_STEP;
       if (!result.acted || result.step === 'other' || stuck) {
         setStatus('login'); // unrecognised page, or auto-login isn't making progress — let the user take over
