@@ -4,9 +4,13 @@ import {
   IS_LOGOUT_CONFIRMATION,
   PAGE_HELPERS,
   PROBE,
+  READ_WAYF_ORGANISATIONS,
   autoLoginStep,
+  isWayf,
+  loginUrlFor,
 } from './pageScripts';
 import { activeCredentials, forgetSession } from './credentials';
+import { ORGANISATIONS, Organisation } from './organisations';
 
 // 'login' means the app needs credentials from the native login screen: none are
 // available, auto-login is paused (after a logout), or the last attempt failed.
@@ -47,6 +51,8 @@ let autoLoginPaused = false;
 let generation = 0;
 // Why the last login attempt failed, shown on the native login screen.
 let loginError: string | null = null;
+// Read live from the site's institution picker; the bundled list until then.
+let organisations: Organisation[] = ORGANISATIONS;
 
 function resetAutoLogin() {
   autoLoginStepSeen = null;
@@ -76,8 +82,16 @@ ${pageAlert}` : message;
   listeners.forEach((l) => l());
 }
 
+/** Counts consecutive visits to the same step; true when it came back (previous submit refused). */
+function repeatedStep(step: string): boolean {
+  autoLoginStepCount = step === autoLoginStepSeen ? autoLoginStepCount + 1 : 1;
+  autoLoginStepSeen = step;
+  autoLoginActions += 1;
+  return autoLoginStepCount > MAX_SAME_AUTO_LOGIN_STEP;
+}
+
 const STEP_ERRORS: Record<string, string> = {
-  wayf: "Le choix de l'organisation a échoué.",
+  wayf: "Le site est revenu au choix de l'organisation.",
   email: 'E-mail refusé par la page de connexion.',
   password: 'E-mail ou mot de passe incorrect.',
   other: 'Étape de connexion non prise en charge (par ex. double authentification).',
@@ -126,6 +140,7 @@ export const siteBridge = {
   getStatus: () => status,
   getGeneration: () => generation,
   getLoginError: () => loginError,
+  getOrganisations: () => organisations,
 
   subscribe(listener: () => void) {
     listeners.add(listener);
@@ -171,19 +186,42 @@ export const siteBridge = {
       // Not that page (or the page errored) — fall through to normal handling.
     }
 
+    if (isWayf(probe.url)) {
+      try {
+        const live = await exec<Organisation[]>(READ_WAYF_ORGANISATIONS);
+        if (live.length) {
+          organisations = live;
+          listeners.forEach((l) => l());
+        }
+      } catch {
+        // Keep the bundled list.
+      }
+    }
+
     const creds = autoLoginPaused ? null : await activeCredentials();
     if (!creds) {
       setStatus('login');
       return;
     }
+
+    if (isWayf(probe.url)) {
+      if (!organisations.some((o) => o.entityId === creds.organisation)) {
+        failLogin('Organisation non proposée par le site.');
+        return;
+      }
+      if (repeatedStep('wayf')) {
+        failLogin(STEP_ERRORS.wayf);
+        return;
+      }
+      webView?.injectJavaScript(`location.href = ${JSON.stringify(loginUrlFor(creds.organisation))}; true;`);
+      return;
+    }
+
     try {
       const result = await exec<{ step: string; acted: boolean; alert?: string }>(
-        autoLoginStep(creds.organisation, creds.email, creds.password)
+        autoLoginStep(creds.email, creds.password)
       );
-      autoLoginStepCount = result.step === autoLoginStepSeen ? autoLoginStepCount + 1 : 1;
-      autoLoginStepSeen = result.step;
-      autoLoginActions += 1;
-      if (!result.acted || result.step === 'other' || autoLoginStepCount > MAX_SAME_AUTO_LOGIN_STEP) {
+      if (repeatedStep(result.step) || !result.acted || result.step === 'other') {
         failLogin(STEP_ERRORS[result.step] ?? STEP_ERRORS.other, result.alert);
         return;
       }

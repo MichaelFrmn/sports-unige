@@ -34,8 +34,13 @@ Web is not supported: the app relies on `react-native-webview`.
 
 The app has its own login screen (organisation, e-mail, password, "Se souvenir
 de moi"). The official pages are never shown: the hidden WebView goes through
-them itself — the SWITCHaai institution picker, then the organisation's login
-page(s) — using what was entered.
+them itself using what was entered.
+
+- The organisation list is read live from the site's SWITCHaai institution
+  picker (bundled copy as a fallback). The picker itself is skipped: it's a
+  SAML discovery service that only sends the browser back to the site's login
+  handler with the chosen entityID, so the app goes to that URL directly
+  (`loginUrlFor`) instead of driving the picker's JavaScript widget.
 
 - Organisation and e-mail are always remembered; the password only with
   "Se souvenir de moi". Without it, the password is kept in memory for the

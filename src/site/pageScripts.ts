@@ -260,12 +260,12 @@ export const READ_UNREGISTER_RESULT = `
   return msg ? { kind: 'error', text: msg } : null;
 `;
 
-// --- Auto-login: institution picker (WAYF) -> organisation login page(s).
-// bridge.ts drives one step per page load. Switch edu-ID pages split email and
+// --- Auto-login: organisation login page(s). The institution picker (WAYF) is
+// skipped entirely, see loginUrlFor. bridge.ts drives one step per page load. Switch edu-ID pages split email and
 // password over two pages; most other Shibboleth IdPs use one j_username/j_password
 // page. Both are handled by looking for the fields rather than per-organisation code.
 
-export const autoLoginStep = (organisation: string, email: string, password: string) => `
+export const autoLoginStep = (email: string, password: string) => `
   var fill = function (el, val) {
     el.value = val;
     el.dispatchEvent(new Event('input', { bubbles: true }));
@@ -287,22 +287,6 @@ export const autoLoginStep = (organisation: string, email: string, password: str
     );
     return el ? text(el) : '';
   };
-
-  if (location.hostname === 'wayf.switch.ch') {
-    var sel = $id('userIdPSelection');
-    if (!sel) return { step: 'wayf', acted: false };
-    var wanted = ${JSON.stringify(organisation)};
-    if (!Array.prototype.some.call(sel.options, function (o) { return o.value === wanted; })) {
-      return { step: 'wayf', acted: false, alert: 'Organisation non proposée par le site.' };
-    }
-    sel.value = wanted;
-    sel.dispatchEvent(new Event('change', { bubbles: true }));
-    await sleep(80);
-    var goBtn = document.querySelector('button[type="submit"][form="IdPList"]');
-    if (!goBtn) return { step: 'wayf', acted: false };
-    realClick(goBtn);
-    return { step: 'wayf', acted: true };
-  }
 
   var passwordField = document.querySelector('input[type="password"]');
   var userField = $id('username') || document.querySelector('input[name="j_username"]') ||
@@ -331,3 +315,29 @@ export const IS_LOGOUT_CONFIRMATION = `
   return /fermer tous les onglets/i.test(document.body ? document.body.textContent : '');
 `;
 
+
+// The SWITCHaai institution picker (WAYF) is a SAML discovery service: all it does
+// is send the browser back to the site's login handler with the chosen entityID.
+// Going there directly avoids driving the picker's JavaScript widget at all.
+export const isWayf = (url: string) => /^https:\/\/wayf\.switch\.ch\//.test(url);
+
+export const loginUrlFor = (entityId: string) =>
+  'https://wwwi.unige.ch/service/sport/Shibboleth.sso/Login?SAMLDS=1&entityID=' +
+  encodeURIComponent(entityId) +
+  '&target=' +
+  encodeURIComponent(HOME_URL);
+
+/** The picker's organisations, in its order, without the "recently used" duplicates. */
+export const READ_WAYF_ORGANISATIONS = `
+  var sel = $id('userIdPSelection');
+  if (!sel) return [];
+  var byId = {};
+  var order = [];
+  Array.prototype.forEach.call(sel.options, function (o) {
+    if (!o.value || o.value === '-') return;
+    if (byId[o.value]) order.splice(order.indexOf(o.value), 1);
+    byId[o.value] = text(o);
+    order.push(o.value);
+  });
+  return order.map(function (id) { return { name: byId[id], entityId: id }; });
+`;

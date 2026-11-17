@@ -16,10 +16,8 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { siteBridge } from '../site/bridge';
 import { loadStoredLogin, setCredentials } from '../site/credentials';
-import { ORGANISATIONS, organisationName } from '../site/organisations';
+import { DEFAULT_ORGANISATION } from '../site/organisations';
 import { theme } from '../theme';
-
-const DEFAULT_ORGANISATION = ORGANISATIONS[0].entityId;
 
 /**
  * The app's own login form. The official pages (institution picker, organisation
@@ -32,7 +30,12 @@ export function LoginScreen({ onSubmitted }: { onSubmitted: () => void }) {
   const [password, setPassword] = useState('');
   const [remember, setRemember] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [search, setSearch] = useState('');
   const [missing, setMissing] = useState(false);
+  // The site's own institution list, read live from its picker page.
+  const organisations = useSyncExternalStore(siteBridge.subscribe, siteBridge.getOrganisations);
+  const organisationName = organisations.find((o) => o.entityId === organisation)?.name ?? organisation;
+  const shown = organisations.filter((o) => o.name.toLowerCase().includes(search.trim().toLowerCase()));
 
   useEffect(() => {
     loadStoredLogin().then((s) => {
@@ -65,7 +68,7 @@ export function LoginScreen({ onSubmitted }: { onSubmitted: () => void }) {
 
           <Text style={styles.label}>Organisation</Text>
           <Pressable style={styles.input} onPress={() => setPickerOpen(true)}>
-            <Text style={styles.inputText}>{organisationName(organisation)}</Text>
+            <Text style={styles.inputText}>{organisationName}</Text>
           </Pressable>
 
           <Text style={styles.label}>E-mail</Text>
@@ -123,14 +126,23 @@ export function LoginScreen({ onSubmitted }: { onSubmitted: () => void }) {
               <Text style={styles.pickerClose}>Fermer</Text>
             </Pressable>
           </View>
+          <TextInput
+            style={[styles.input, styles.search]}
+            placeholder="Rechercher une organisation…"
+            placeholderTextColor={theme.colors.textMuted}
+            value={search}
+            onChangeText={setSearch}
+          />
           <FlatList
-            data={ORGANISATIONS}
+            data={shown}
+            keyboardShouldPersistTaps="handled"
             keyExtractor={(o) => o.entityId}
             renderItem={({ item }) => (
               <Pressable
                 style={({ pressed }) => [styles.option, pressed && styles.pressed]}
                 onPress={() => {
                   setOrganisation(item.entityId);
+                  setSearch('');
                   setPickerOpen(false);
                 }}
               >
@@ -200,6 +212,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: theme.colors.border,
   },
+  search: { margin: 16, marginBottom: 8 },
   pickerTitle: { fontSize: 17, fontWeight: '800', color: theme.colors.text },
   pickerClose: { color: theme.colors.primary, fontWeight: '700' },
   option: {
