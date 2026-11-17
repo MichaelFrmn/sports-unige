@@ -30,35 +30,35 @@ npm start          # then scan the QR code with Expo Go (iOS / Android)
 
 Web is not supported: the app relies on `react-native-webview`.
 
-## Auto-login
+## Login
 
-The site logs you out roughly daily (its own policy, not something the app
-controls). From the login screen, **"Connexion auto"** lets you save your
-Switch edu-ID e-mail and password; the app then replays the login flow itself
-(institution picker → Switch edu-ID → password) whenever the session expires,
-so you only ever see a brief flash instead of the form.
+The app has its own login screen (organisation, e-mail, password, "Se souvenir
+de moi"). The official pages are never shown: the hidden WebView goes through
+them itself — the SWITCHaai institution picker, then the organisation's login
+page(s) — using what was entered.
 
-- Credentials are kept in the OS-level encrypted keychain
-  (`expo-secure-store`: Android Keystore / iOS Keychain), typed into the
-  site's own login form exactly like you would, never sent anywhere else.
-- This stores your real UNIGE/Switch password on the device. For a personal
-  phone that's a reasonable trade for not retyping it daily, but it is a real
-  step up in risk over the rest of the app (which never touches your
-  password) if the device itself is ever compromised. Use "Oublier ces
-  identifiants" in the same screen to remove it.
-- Doesn't cover MFA/2FA if your account ever requires it — that screen isn't
-  automated, so it would stop at that page for you to approve manually.
-- `src/site/credentials.ts` stores them; `autoLoginStep` in
-  `src/site/pageScripts.ts` drives the three pages, keyed on an EPFL
-  Switch edu-ID flow — if the institution picker or login pages change, or a
-  different institution is involved, that's the script to update.
-- The **logout button** (top-right of both tabs) remounts the site WebView in
-  incognito mode, which on Android wipes all its cookies — the UNIGE session
-  and the Switch edu-ID one (the site's own "Déconnexion" leaves the latter
-  alive, so you'd be signed straight back in). Auto-login is paused, so you end
-  on the login screen; "Recharger" or logging in manually resumes it. Saved
-  credentials are kept. On iOS, incognito only isolates that WebView instead
-  of wiping, so after an app restart you'd be logged in again.
+- Organisation and e-mail are always remembered; the password only with
+  "Se souvenir de moi". Without it, the password is kept in memory for the
+  session (so the site's daily timeout is handled silently while the app is
+  open) and asked again after a restart. Stored values live in the OS keychain
+  (`expo-secure-store`) and are only ever typed into the site's own form.
+- With a remembered password, this stores your real university password on
+  the device: a real increase in risk if the device itself is compromised.
+- Login pages are filled by looking for their fields, not per organisation:
+  Switch edu-ID's two-page flow (e-mail, then password; tested against saved
+  EPFL pages) and the standard one-page Shibboleth form (`j_username` /
+  `j_password`). Organisations with other forms, and MFA prompts, aren't
+  automated; the login screen then shows an error instead.
+- A refused password stops after one attempt and shows the page's own error
+  message; nothing is retried automatically.
+- The **logout button** (top-right of both tabs) remounts the WebView in
+  incognito mode, which on Android wipes all its cookies (the UNIGE session
+  and the Switch edu-ID one, which the site's own "Déconnexion" leaves alive),
+  and returns to the login screen. On iOS incognito only isolates that
+  WebView, so after an app restart you'd be logged in again.
+- `src/screens/LoginScreen.tsx` is the form, `src/site/organisations.ts` the
+  organisation list, `src/site/credentials.ts` the storage, and `autoLoginStep`
+  in `src/site/pageScripts.ts` the script that fills the official pages.
 
 ## Build & share (Android APK)
 
@@ -120,10 +120,9 @@ without registering every tester's device individually.
 
 The site is an Oracle ADF + Shibboleth app with no API, so the app embeds it:
 
-- `src/site/SiteWebView.tsx` mounts one WebView for the app's lifetime. It is
-  hidden while the inscription app is loaded, and shown full-screen when it
-  isn't (Shibboleth login, session expired, error page) so you can log in.
-  The login session stays inside the WebView; the app never reads cookies.
+- `src/site/SiteWebView.tsx` mounts one WebView for the app's lifetime,
+  underneath the app and never shown. The login session stays inside the
+  WebView; the app never reads cookies.
 - `src/site/bridge.ts` injects scripts into that page, one at a time (ADF is
   stateful), and returns their JSON result.
 - `src/site/pageScripts.ts` holds those scripts. They read the ADF tables and
@@ -153,7 +152,7 @@ App.tsx                          navigation (tabs + stack) + the site WebView
 src/site/                        WebView, bridge, page scripts
 src/services/siteService.ts      the single boundary used by screens
 src/hooks/useSiteQuery.ts        loading / error / refresh state
-src/screens/*                    sports, slots, signup, my registrations
-src/components/*                 Badge, QueryState, SlotSummary, CredentialsPrompt
+src/screens/*                    login, sports, slots, signup, my registrations
+src/components/*                 Badge, QueryState, SlotSummary
 src/types.ts                     Slot / Registration + date/price helpers
 ```

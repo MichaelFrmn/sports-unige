@@ -260,25 +260,42 @@ export const READ_UNREGISTER_RESULT = `
   return msg ? { kind: 'error', text: msg } : null;
 `;
 
-// --- Auto-login: WAYF institution picker -> Switch edu-ID email -> password.
-// Three separate page loads outside the UNIGE domain; bridge.ts drives one step per onLoadEnd.
+// --- Auto-login: institution picker (WAYF) -> organisation login page(s).
+// bridge.ts drives one step per page load. Switch edu-ID pages split email and
+// password over two pages; most other Shibboleth IdPs use one j_username/j_password
+// page. Both are handled by looking for the fields rather than per-organisation code.
 
-// The saved institution-picker page showed EPFL pre-selected for this account
-// (michael.freeman@epfl.ch is a Switch edu-ID / EPFL-federated identity, not a
-// UNIGE-issued one). If a different institution is ever needed, change this.
-const EPFL_ENTITY_ID = 'https://idp.epfl.ch/idp/shibboleth';
-
-export const autoLoginStep = (email: string, password: string) => `
+export const autoLoginStep = (organisation: string, email: string, password: string) => `
   var fill = function (el, val) {
     el.value = val;
     el.dispatchEvent(new Event('input', { bubbles: true }));
     el.dispatchEvent(new Event('change', { bubbles: true }));
   };
+  var submit = function (field, preferredId) {
+    var f = field.form;
+    var btn = (preferredId && $id(preferredId)) ||
+      (f && f.querySelector('button[type="submit"], input[type="submit"]')) ||
+      (f && f.id && document.querySelector('button[type="submit"][form="' + f.id + '"]'));
+    if (btn) { realClick(btn); return true; }
+    if (f) { f.requestSubmit ? f.requestSubmit() : f.submit(); return true; }
+    return false;
+  };
+  var alertText = function () {
+    var el = Array.prototype.find.call(
+      document.querySelectorAll('.alert-danger, .alert-error, .form-error, .error, [role="alert"]'),
+      function (e) { return visible(e) && text(e); }
+    );
+    return el ? text(el) : '';
+  };
 
   if (location.hostname === 'wayf.switch.ch') {
     var sel = $id('userIdPSelection');
     if (!sel) return { step: 'wayf', acted: false };
-    sel.value = ${JSON.stringify(EPFL_ENTITY_ID)};
+    var wanted = ${JSON.stringify(organisation)};
+    if (!Array.prototype.some.call(sel.options, function (o) { return o.value === wanted; })) {
+      return { step: 'wayf', acted: false, alert: 'Organisation non proposée par le site.' };
+    }
+    sel.value = wanted;
     sel.dispatchEvent(new Event('change', { bubbles: true }));
     await sleep(80);
     var goBtn = document.querySelector('button[type="submit"][form="IdPList"]');
@@ -287,26 +304,23 @@ export const autoLoginStep = (email: string, password: string) => `
     return { step: 'wayf', acted: true };
   }
 
-  var passwordField = $id('password');
+  var passwordField = document.querySelector('input[type="password"]');
+  var userField = $id('username') || document.querySelector('input[name="j_username"]') ||
+    document.querySelector('input[type="email"]') || document.querySelector('input[name="username"]');
+
   if (passwordField) {
+    var alert = alertText();
+    if (userField && !userField.readOnly) fill(userField, ${JSON.stringify(email)});
     fill(passwordField, ${JSON.stringify(password)});
     await sleep(80);
-    var proceedBtn = $id('button-proceed') || document.querySelector('button[type="submit"][form="passwordForm"]');
-    if (!proceedBtn) return { step: 'password', acted: false };
-    realClick(proceedBtn);
-    return { step: 'password', acted: true };
+    return { step: 'password', acted: submit(passwordField, 'button-proceed'), alert: alert };
   }
-
-  var emailField = $id('username');
-  if (emailField) {
-    fill(emailField, ${JSON.stringify(email)});
+  if (userField) {
+    var alert2 = alertText();
+    fill(userField, ${JSON.stringify(email)});
     await sleep(80);
-    var submitBtn = $id('button-submit') || document.querySelector('button[type="submit"][form="loginForm"]');
-    if (!submitBtn) return { step: 'email', acted: false };
-    realClick(submitBtn);
-    return { step: 'email', acted: true };
+    return { step: 'email', acted: submit(userField, 'button-submit'), alert: alert2 };
   }
-
   return { step: 'other', acted: false };
 `;
 

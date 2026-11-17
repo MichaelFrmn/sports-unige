@@ -1,17 +1,18 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { Pressable, Alert } from 'react-native';
+import { Pressable, Alert, View, StyleSheet } from 'react-native';
 
 import { SportsScreen } from './src/screens/SportsScreen';
 import { SlotsScreen } from './src/screens/SlotsScreen';
 import { SignupScreen } from './src/screens/SignupScreen';
 import { MyRegistrationsScreen } from './src/screens/MyRegistrationsScreen';
-import { SiteWebView } from './src/site/SiteWebView';
+import { LoginScreen, LoggingIn } from './src/screens/LoginScreen';
+import { SiteWebView, useSiteStatus } from './src/site/SiteWebView';
 import { logout } from './src/services/siteService';
 import { theme } from './src/theme';
 
@@ -69,10 +70,27 @@ function Tabs() {
   );
 }
 
+/** The app's own login screen, over everything, whenever the site needs credentials. */
+function LoginGate() {
+  const status = useSiteStatus();
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (status !== 'loading') setSubmitting(false);
+  }, [status]);
+
+  if (status !== 'login' && !submitting) return null;
+  return (
+    <View style={styles.overlay}>
+      {status === 'login' ? <LoginScreen onSubmitted={() => setSubmitting(true)} /> : <LoggingIn />}
+    </View>
+  );
+}
+
 export default function App() {
   return (
     <SafeAreaProvider>
-      {/* Rendered first so it sits underneath the app; it only comes to the front for login. */}
+      {/* Rendered first so it sits underneath the app; it is never shown. */}
       <SiteWebView />
       <NavigationContainer>
         <StatusBar style="light" />
@@ -82,6 +100,11 @@ export default function App() {
           <Stack.Screen name="Signup" component={SignupScreen} options={{ title: 'Inscription' }} />
         </Stack.Navigator>
       </NavigationContainer>
+      <LoginGate />
     </SafeAreaProvider>
   );
 }
+
+const styles = StyleSheet.create({
+  overlay: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, zIndex: 20, elevation: 20 },
+});

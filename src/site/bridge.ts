@@ -6,10 +6,10 @@ import {
   PROBE,
   autoLoginStep,
 } from './pageScripts';
-import { loadCredentials } from './credentials';
+import { activeCredentials, forgetSession } from './credentials';
 
-// 'login' means the WebView is showing something other than the inscription
-// app (Shibboleth login, an error page…) and the user has to deal with it.
+// 'login' means the app needs credentials from the native login screen: none are
+// available, auto-login is paused (after a logout), or the last attempt failed.
 export type SiteStatus = 'loading' | 'login' | 'ready';
 
 type Pending = {
@@ -19,9 +19,9 @@ type Pending = {
 };
 
 const COMMAND_TIMEOUT_MS = 30000;
-// If auto-login keeps landing on the same step (e.g. a rejected password), stop
-// retrying and show the real form instead of looping silently.
-const MAX_SAME_AUTO_LOGIN_STEP = 2;
+// Landing on the same step again means the previous submit was refused (e.g. a wrong
+// password): report it instead of resubmitting.
+const MAX_SAME_AUTO_LOGIN_STEP = 1;
 // Backstop across the whole auto-login/bounce sequence, regardless of pattern —
 // an alternating loop (e.g. password page -> logout-confirmation page -> password
 // page -> ...) would never repeat the same step twice in a row, so it would never
@@ -45,6 +45,8 @@ let autoLoginPaused = false;
 // Bumped on logout; SiteWebView remounts its WebView in incognito mode, which on
 // Android wipes every cookie (UNIGE and Switch edu-ID sessions alike).
 let generation = 0;
+// Why the last login attempt failed, shown on the native login screen.
+let loginError: string | null = null;
 
 function resetAutoLogin() {
   autoLoginStepSeen = null;
@@ -58,11 +60,28 @@ function setStatus(s: SiteStatus) {
   if (s === 'ready') {
     resetAutoLogin();
     autoLoginPaused = false;
+    loginError = null;
     readyWaiters.forEach((w) => w());
     readyWaiters = [];
   }
   listeners.forEach((l) => l());
 }
+
+function failLogin(message: string, pageAlert?: string) {
+  loginError = pageAlert ? `${message}
+${pageAlert}` : message;
+  autoLoginPaused = true;
+  forgetSession();
+  status = 'login';
+  listeners.forEach((l) => l());
+}
+
+const STEP_ERRORS: Record<string, string> = {
+  wayf: "Le choix de l'organisation a échoué.",
+  email: 'E-mail refusé par la page de connexion.',
+  password: 'E-mail ou mot de passe incorrect.',
+  other: 'Étape de connexion non prise en charge (par ex. double authentification).',
+};
 
 function waitReady(): Promise<void> {
   return status === 'ready' ? Promise.resolve() : new Promise((r) => readyWaiters.push(r));
@@ -106,6 +125,7 @@ function enqueue<T>(task: () => Promise<T>): Promise<T> {
 export const siteBridge = {
   getStatus: () => status,
   getGeneration: () => generation,
+  getLoginError: () => loginError,
 
   subscribe(listener: () => void) {
     listeners.add(listener);
@@ -137,7 +157,7 @@ export const siteBridge = {
     }
 
     if (autoLoginActions >= MAX_AUTO_ACTIONS) {
-      setStatus('login'); // too many automatic steps without reaching the app — let the user take over
+      failLogin("La connexion n'aboutit pas.");
       return;
     }
 
@@ -151,24 +171,25 @@ export const siteBridge = {
       // Not that page (or the page errored) — fall through to normal handling.
     }
 
-    const creds = autoLoginPaused ? null : await loadCredentials();
+    const creds = autoLoginPaused ? null : await activeCredentials();
     if (!creds) {
       setStatus('login');
       return;
     }
     try {
-      const result = await exec<{ step: string; acted: boolean }>(autoLoginStep(creds.email, creds.password));
+      const result = await exec<{ step: string; acted: boolean; alert?: string }>(
+        autoLoginStep(creds.organisation, creds.email, creds.password)
+      );
       autoLoginStepCount = result.step === autoLoginStepSeen ? autoLoginStepCount + 1 : 1;
       autoLoginStepSeen = result.step;
       autoLoginActions += 1;
-      const stuck = autoLoginStepCount > MAX_SAME_AUTO_LOGIN_STEP;
-      if (!result.acted || result.step === 'other' || stuck) {
-        setStatus('login'); // unrecognised page, or auto-login isn't making progress — let the user take over
+      if (!result.acted || result.step === 'other' || autoLoginStepCount > MAX_SAME_AUTO_LOGIN_STEP) {
+        failLogin(STEP_ERRORS[result.step] ?? STEP_ERRORS.other, result.alert);
         return;
       }
-      // Acted on a step: a navigation is coming, stay hidden while it loads.
+      // Acted on a step: a navigation is coming, stay on the loading state while it loads.
     } catch {
-      setStatus('login');
+      failLogin('La page de connexion ne répond pas.');
     }
   },
 
@@ -223,6 +244,13 @@ export const siteBridge = {
     }
   },
 
+  /** Starts a login with credentials from the native login screen. */
+  login() {
+    autoLoginPaused = false;
+    loginError = null;
+    siteBridge.goHome();
+  },
+
   /**
    * Wipes the WebView's cookies (via a remount in incognito mode) and ends on the
    * login screen with auto-login paused. The site's own "Déconnexion" can't do this:
@@ -231,6 +259,8 @@ export const siteBridge = {
   logout() {
     resetAutoLogin();
     autoLoginPaused = true;
+    loginError = null;
+    forgetSession();
     rejectAll('Déconnecté.');
     generation += 1;
     status = 'loading';
@@ -240,7 +270,6 @@ export const siteBridge = {
   /** Navigates to the home page immediately, whatever state the page is in. */
   goHome() {
     resetAutoLogin();
-    autoLoginPaused = false;
     setStatus('loading');
     webView?.injectJavaScript(`location.href = ${JSON.stringify(HOME_URL)}; true;`);
   },
