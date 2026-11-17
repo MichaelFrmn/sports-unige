@@ -62,6 +62,10 @@ export default function App() {
         <Tab.Navigator
           screenOptions={({ route }) => ({
             headerShown: false,
+            // Both tabs mount immediately instead of on first visit, so the
+            // first switch to a tab doesn't show its one-time initial-mount
+            // layout settle (insets, first data fetch) as a flicker.
+            lazy: false,
             tabBarActiveTintColor: theme.colors.primary,
             tabBarInactiveTintColor: theme.colors.textMuted,
             tabBarIcon: ({ color, size, focused }) => (
