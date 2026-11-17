@@ -5,6 +5,7 @@ import {
   PAGE_HELPERS,
   PROBE,
   READ_WAYF_ORGANISATIONS,
+  SUBMIT_TRANSIT,
   autoLoginStep,
   isWayf,
   loginUrlFor,
@@ -31,7 +32,13 @@ const MAX_SAME_AUTO_LOGIN_STEP = 1;
 // page -> ...) would never repeat the same step twice in a row, so it would never
 // trip MAX_SAME_AUTO_LOGIN_STEP on its own and could otherwise retry forever,
 // reloading real pages on the site with no delay between attempts.
-const MAX_AUTO_ACTIONS = 6;
+// A full login is up to ~6 automatic steps (institution, SAML hand-off, e-mail,
+// password, consent, hand-off back), so this leaves headroom without allowing a loop.
+const MAX_AUTO_ACTIONS = 10;
+// How long to let a page move on by itself (auto-submitting form, JS redirect)
+// before treating it as stuck or unknown.
+const SETTLE_MS = 2500;
+const TRANSIT_TIMEOUT_MS = 8000;
 
 let webView: Pick<WebView, 'injectJavaScript'> | null = null;
 let status: SiteStatus = 'loading';
@@ -53,6 +60,8 @@ let generation = 0;
 let loginError: string | null = null;
 // Read live from the site's institution picker; the bundled list until then.
 let organisations: Organisation[] = ORGANISATIONS;
+// Incremented on every page load, so async handlers can tell the page has since moved on.
+let loadSeq = 0;
 
 function resetAutoLogin() {
   autoLoginStepSeen = null;
@@ -94,7 +103,8 @@ const STEP_ERRORS: Record<string, string> = {
   wayf: "Le site est revenu au choix de l'organisation.",
   email: 'E-mail refusé par la page de connexion.',
   password: 'E-mail ou mot de passe incorrect.',
-  other: 'Étape de connexion non prise en charge (par ex. double authentification).',
+  proceed: 'Une page de confirmation de la connexion revient en boucle.',
+  other: 'Étape de connexion non reconnue (par ex. double authentification). Page :',
 };
 
 function waitReady(): Promise<void> {
@@ -154,16 +164,22 @@ export const siteBridge = {
   },
 
   onLoadStart() {
+    loadSeq += 1;
     setStatus('loading');
     rejectAll('La page du site a changé pendant le chargement. Réessayez.');
   },
 
   async onLoadEnd() {
+    const seq = loadSeq;
+    // The page navigated by itself while we were looking at it: the next onLoadEnd handles it.
+    const moved = () => seq !== loadSeq;
+    const settle = () => new Promise((r) => setTimeout(r, SETTLE_MS));
+
     let probe: { url: string; app: boolean };
     try {
       probe = await exec<{ url: string; app: boolean }>(PROBE);
     } catch {
-      setStatus('login');
+      if (!moved()) setStatus('login');
       return;
     }
     if (probe.app) {
@@ -185,6 +201,7 @@ export const siteBridge = {
     } catch {
       // Not that page (or the page errored) — fall through to normal handling.
     }
+    if (moved()) return;
 
     if (isWayf(probe.url)) {
       try {
@@ -197,8 +214,10 @@ export const siteBridge = {
         // Keep the bundled list.
       }
     }
+    if (moved()) return;
 
     const creds = autoLoginPaused ? null : await activeCredentials();
+    if (moved()) return;
     if (!creds) {
       setStatus('login');
       return;
@@ -217,18 +236,38 @@ export const siteBridge = {
       return;
     }
 
+    let result: { step: string; acted: boolean; alert?: string };
     try {
-      const result = await exec<{ step: string; acted: boolean; alert?: string }>(
-        autoLoginStep(creds.email, creds.password)
-      );
-      if (repeatedStep(result.step) || !result.acted || result.step === 'other') {
-        failLogin(STEP_ERRORS[result.step] ?? STEP_ERRORS.other, result.alert);
-        return;
-      }
-      // Acted on a step: a navigation is coming, stay on the loading state while it loads.
+      result = await exec(autoLoginStep(creds.email, creds.password));
     } catch {
-      failLogin('La page de connexion ne répond pas.');
+      if (!moved()) failLogin('La page de connexion ne répond pas.');
+      return;
     }
+
+    if (result.step === 'transit') {
+      // SAML hand-off page: it submits itself. Only step in if it doesn't.
+      autoLoginActions += 1;
+      setTimeout(async () => {
+        if (moved()) return;
+        await exec(SUBMIT_TRANSIT).catch(() => undefined);
+        setTimeout(() => {
+          if (!moved()) failLogin('La connexion est restée bloquée sur une page de transfert.');
+        }, TRANSIT_TIMEOUT_MS);
+      }, TRANSIT_TIMEOUT_MS);
+      return;
+    }
+
+    if (result.step === 'other') {
+      // Possibly a page that redirects itself shortly (JS redirect, "please wait"): give it a moment.
+      await settle();
+      if (!moved()) failLogin(STEP_ERRORS.other, result.alert);
+      return;
+    }
+
+    if (repeatedStep(result.step) || !result.acted) {
+      failLogin(STEP_ERRORS[result.step] ?? STEP_ERRORS.other, result.alert);
+    }
+    // Otherwise it acted on a step: a navigation is coming, stay on the loading state.
   },
 
   onMessage(e: WebViewMessageEvent) {

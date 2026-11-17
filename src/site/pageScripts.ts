@@ -288,6 +288,12 @@ export const autoLoginStep = (email: string, password: string) => `
     return el ? text(el) : '';
   };
 
+  // SAML hand-off pages (auto-submitting form carrying SAMLRequest / SAMLResponse):
+  // nothing to fill, the page submits itself; bridge.ts just waits for the next load.
+  if (document.querySelector('input[name="SAMLResponse"], input[name="SAMLRequest"], meta[http-equiv="refresh" i]')) {
+    return { step: 'transit', acted: false };
+  }
+
   var passwordField = document.querySelector('input[type="password"]');
   var userField = $id('username') || document.querySelector('input[name="j_username"]') ||
     document.querySelector('input[type="email"]') || document.querySelector('input[name="username"]');
@@ -305,7 +311,28 @@ export const autoLoginStep = (email: string, password: string) => `
     await sleep(80);
     return { step: 'email', acted: submit(userField, 'button-submit'), alert: alert2 };
   }
-  return { step: 'other', acted: false };
+  // Shibboleth IdP interstitials (attribute-release consent, notices) use a standard
+  // "proceed" event button.
+  var proceed = document.querySelector('button[name="_eventId_proceed"], input[name="_eventId_proceed"]');
+  if (proceed) {
+    realClick(proceed);
+    return { step: 'proceed', acted: true };
+  }
+
+  var bodyText = text(document.body);
+  return {
+    step: 'other',
+    acted: false,
+    alert: (document.title || location.hostname) + ' — ' + location.hostname + ' — ' + bodyText.slice(0, 160)
+  };
+`;
+
+/** Submits a SAML hand-off form that didn't submit itself. */
+export const SUBMIT_TRANSIT = `
+  var field = document.querySelector('input[name="SAMLResponse"], input[name="SAMLRequest"]');
+  if (!field || !field.form) return false;
+  field.form.submit();
+  return true;
 `;
 
 // The site's "Déconnexion" lands on a dead-end SWITCHaai page telling the user to
