@@ -282,16 +282,22 @@ export const autoLoginStep = (email: string, password: string) => `
   };
   var alertText = function () {
     var el = Array.prototype.find.call(
-      document.querySelectorAll('.alert-danger, .alert-error, .form-error, .error, [role="alert"]'),
+      document.querySelectorAll('.alert-danger, .alert-error, .invalid-feedback, .text-danger, .form-error, .error, [role="alert"]'),
       function (e) { return visible(e) && text(e); }
     );
     return el ? text(el) : '';
+  };
+  // Every result says which page it was, so a failure can quote what the page showed.
+  var done = function (r) {
+    r.page = (document.title || '?') + ' — ' + location.hostname + ' — ' + text(document.body).slice(0, 200);
+    if (r.alert === undefined) r.alert = alertText();
+    return r;
   };
 
   // SAML hand-off pages (auto-submitting form carrying SAMLRequest / SAMLResponse):
   // nothing to fill, the page submits itself; bridge.ts just waits for the next load.
   if (document.querySelector('input[name="SAMLResponse"], input[name="SAMLRequest"], meta[http-equiv="refresh" i]')) {
-    return { step: 'transit', acted: false };
+    return done({ step: 'transit', acted: false });
   }
 
   var passwordField = document.querySelector('input[type="password"]');
@@ -303,28 +309,23 @@ export const autoLoginStep = (email: string, password: string) => `
     if (userField && !userField.readOnly) fill(userField, ${JSON.stringify(email)});
     fill(passwordField, ${JSON.stringify(password)});
     await sleep(80);
-    return { step: 'password', acted: submit(passwordField, 'button-proceed'), alert: alert };
+    return done({ step: 'password', acted: submit(passwordField, 'button-proceed'), alert: alert });
   }
   if (userField) {
     var alert2 = alertText();
     fill(userField, ${JSON.stringify(email)});
     await sleep(80);
-    return { step: 'email', acted: submit(userField, 'button-submit'), alert: alert2 };
+    return done({ step: 'email', acted: submit(userField, 'button-submit'), alert: alert2 });
   }
   // Shibboleth IdP interstitials (attribute-release consent, notices) use a standard
   // "proceed" event button.
   var proceed = document.querySelector('button[name="_eventId_proceed"], input[name="_eventId_proceed"]');
   if (proceed) {
     realClick(proceed);
-    return { step: 'proceed', acted: true };
+    return done({ step: 'proceed', acted: true });
   }
 
-  var bodyText = text(document.body);
-  return {
-    step: 'other',
-    acted: false,
-    alert: (document.title || location.hostname) + ' — ' + location.hostname + ' — ' + bodyText.slice(0, 160)
-  };
+  return done({ step: 'other', acted: false });
 `;
 
 /** Submits a SAML hand-off form that didn't submit itself. */

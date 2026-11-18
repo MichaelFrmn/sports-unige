@@ -39,6 +39,8 @@ const MAX_AUTO_ACTIONS = 10;
 // before treating it as stuck or unknown.
 const SETTLE_MS = 2500;
 const TRANSIT_TIMEOUT_MS = 8000;
+// After filling and submitting a page, how long to wait for it to navigate.
+const SUBMIT_TIMEOUT_MS = 12000;
 
 let webView: Pick<WebView, 'injectJavaScript'> | null = null;
 let status: SiteStatus = 'loading';
@@ -62,6 +64,9 @@ let loginError: string | null = null;
 let organisations: Organisation[] = ORGANISATIONS;
 // Incremented on every page load, so async handlers can tell the page has since moved on.
 let loadSeq = 0;
+// The load we last acted on. Android can report the same page load as finished twice;
+// acting on it again would look like the site sent us back (e.g. "wrong password").
+let actedSeq = -1;
 
 function resetAutoLogin() {
   autoLoginStepSeen = null;
@@ -101,8 +106,8 @@ function repeatedStep(step: string): boolean {
 
 const STEP_ERRORS: Record<string, string> = {
   wayf: "Le site est revenu au choix de l'organisation.",
-  email: 'E-mail refusé par la page de connexion.',
-  password: 'E-mail ou mot de passe incorrect.',
+  email: 'La page de connexion a refusé l’e-mail. Elle affiche :',
+  password: 'La page de connexion est revenue après l’envoi du mot de passe (refusé ?). Elle affiche :',
   proceed: 'Une page de confirmation de la connexion revient en boucle.',
   other: 'Étape de connexion non reconnue (par ex. double authentification). Page :',
 };
@@ -171,6 +176,7 @@ export const siteBridge = {
 
   async onLoadEnd() {
     const seq = loadSeq;
+    if (seq === actedSeq) return;
     // The page navigated by itself while we were looking at it: the next onLoadEnd handles it.
     const moved = () => seq !== loadSeq;
     const settle = () => new Promise((r) => setTimeout(r, SETTLE_MS));
@@ -194,6 +200,7 @@ export const siteBridge = {
 
     try {
       if (await exec<boolean>(IS_LOGOUT_CONFIRMATION)) {
+        actedSeq = seq;
         autoLoginActions += 1;
         webView?.injectJavaScript(`location.href = ${JSON.stringify(HOME_URL)}; true;`);
         return; // stay hidden; the resulting navigation triggers another onLoadEnd
@@ -232,11 +239,12 @@ export const siteBridge = {
         failLogin(STEP_ERRORS.wayf);
         return;
       }
+      actedSeq = seq;
       webView?.injectJavaScript(`location.href = ${JSON.stringify(loginUrlFor(creds.organisation))}; true;`);
       return;
     }
 
-    let result: { step: string; acted: boolean; alert?: string };
+    let result: { step: string; acted: boolean; alert?: string; page?: string };
     try {
       result = await exec(autoLoginStep(creds.email, creds.password));
     } catch {
@@ -244,8 +252,12 @@ export const siteBridge = {
       return;
     }
 
+    // What to show the user if this step fails: the page's error message, else what it shows.
+    const detail = result.alert || result.page;
+
     if (result.step === 'transit') {
       // SAML hand-off page: it submits itself. Only step in if it doesn't.
+      actedSeq = seq;
       autoLoginActions += 1;
       setTimeout(async () => {
         if (moved()) return;
@@ -260,14 +272,21 @@ export const siteBridge = {
     if (result.step === 'other') {
       // Possibly a page that redirects itself shortly (JS redirect, "please wait"): give it a moment.
       await settle();
-      if (!moved()) failLogin(STEP_ERRORS.other, result.alert);
+      if (!moved()) failLogin(STEP_ERRORS.other, result.page);
       return;
     }
 
     if (repeatedStep(result.step) || !result.acted) {
-      failLogin(STEP_ERRORS[result.step] ?? STEP_ERRORS.other, result.alert);
+      failLogin(STEP_ERRORS[result.step] ?? STEP_ERRORS.other, detail);
+      return;
     }
-    // Otherwise it acted on a step: a navigation is coming, stay on the loading state.
+
+    // It filled and submitted the page: a navigation should follow. If it doesn't, say so
+    // instead of leaving the user on "Connexion en cours…" forever.
+    actedSeq = seq;
+    setTimeout(() => {
+      if (!moved()) failLogin("La page de connexion n'a pas réagi à l'envoi.", result.page);
+    }, SUBMIT_TIMEOUT_MS);
   },
 
   onMessage(e: WebViewMessageEvent) {

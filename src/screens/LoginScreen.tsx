@@ -90,6 +90,8 @@ export function LoginScreen({ onSubmitted }: { onSubmitted: () => void }) {
             placeholder="Mot de passe"
             placeholderTextColor={theme.colors.textMuted}
             secureTextEntry
+            autoCapitalize="none"
+            autoCorrect={false}
             textContentType="password"
             value={password}
             onChangeText={setPassword}

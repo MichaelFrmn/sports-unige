@@ -55,7 +55,11 @@ them itself using what was entered.
   `j_password`). Organisations with other forms, and MFA prompts, aren't
   automated; the login screen then shows an error instead.
 - A refused password stops after one attempt and shows the page's own error
-  message; nothing is retried automatically.
+  message; nothing is retried automatically. Android can report a single page
+  load as "finished" twice; a duplicate is ignored instead of being read as
+  the site sending the password page back (which would look like a refusal
+  that never happened). A submit that gets no reaction within 12s is reported
+  instead of leaving "Connexion en cours…" up forever.
 - The **logout button** (top-right of both tabs) remounts the WebView in
   incognito mode, which on Android wipes all its cookies (the UNIGE session
   and the Switch edu-ID one, which the site's own "Déconnexion" leaves alive),
