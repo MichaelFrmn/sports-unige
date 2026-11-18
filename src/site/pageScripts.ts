@@ -264,33 +264,36 @@ export const READ_UNREGISTER_RESULT = `
 `;
 
 // --- Auto-login: organisation login page(s). The institution picker (WAYF) is
-// skipped entirely, see loginUrlFor. bridge.ts drives one step per page load. Switch edu-ID pages split email and
-// password over two pages; most other Shibboleth IdPs use one j_username/j_password
-// page. Both are handled by looking for the fields rather than per-organisation code.
+// skipped entirely, see loginUrlFor. bridge.ts drives one step per page load.
+// Exactly the flow the user described, built against the real saved pages:
+// e-mail page (Switch edu-ID "Login") -> password page (Switch edu-ID "Login 2").
+// Other Shibboleth IdPs commonly use a single j_username/j_password page instead
+// of splitting it in two, so both shapes are matched by field, not by page count.
 
 export const autoLoginStep = (email: string, password: string) => `
-  // React-controlled inputs (this login page is React, per its data-testid attributes)
-  // intercept the native value setter to track their own state. A plain "el.value = x"
-  // plus a dispatched 'input' event can leave the DOM looking filled while React still
-  // believes the field is empty, so the real submit goes out with nothing in it — which
-  // the site then rejects without any visible error, since it's an empty field, not a
-  // typo. Going through the native setter first is the standard workaround.
-  var nativeValueSetter = window.HTMLInputElement &&
-    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value') &&
-    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-  var fill = function (el, val) {
-    if (nativeValueSetter) { nativeValueSetter.call(el, val); } else { el.value = val; }
+  // This login page is React (data-testid attributes in the saved HTML). React
+  // overrides the native <input> value setter to track field state itself; setting
+  // el.value directly leaves the DOM looking filled while React's own state (what
+  // actually gets submitted) stays empty. Going through the native setter first,
+  // like a real keystroke would, is the standard workaround.
+  var setNativeValue = function (el, val) {
+    var proto = el.tagName === 'TEXTAREA' ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
+    var setter = Object.getOwnPropertyDescriptor(proto, 'value') && Object.getOwnPropertyDescriptor(proto, 'value').set;
+    if (setter) { setter.call(el, val); } else { el.value = val; }
+  };
+  var typeInto = function (el, val) {
+    el.focus();
+    setNativeValue(el, val);
     el.dispatchEvent(new Event('input', { bubbles: true }));
     el.dispatchEvent(new Event('change', { bubbles: true }));
+    el.blur();
   };
-  var submit = function (field, preferredId) {
-    var f = field.form;
-    var btn = (preferredId && $id(preferredId)) ||
-      (f && f.querySelector('button[type="submit"], input[type="submit"]')) ||
-      (f && f.id && document.querySelector('button[type="submit"][form="' + f.id + '"]'));
-    if (btn) { realClick(btn); return true; }
-    if (f) { f.requestSubmit ? f.requestSubmit() : f.submit(); return true; }
-    return false;
+  // Some forms only enable the submit button once their own validation (often
+  // running on the 'input'/'blur' events just dispatched) has had a moment to react.
+  var clickWhenEnabled = async function (btn) {
+    for (var i = 0; i < 20 && btn.disabled; i++) await sleep(100);
+    realClick(btn);
+    return !btn.disabled;
   };
   var alertText = function () {
     var el = Array.prototype.find.call(
@@ -306,46 +309,33 @@ export const autoLoginStep = (email: string, password: string) => `
     return r;
   };
 
-  // SAML hand-off pages (auto-submitting form carrying SAMLRequest / SAMLResponse):
-  // nothing to fill, the page submits itself; bridge.ts just waits for the next load.
-  if (document.querySelector('input[name="SAMLResponse"], input[name="SAMLRequest"], meta[http-equiv="refresh" i]')) {
-    return done({ step: 'transit', acted: false });
-  }
-
   var passwordField = document.querySelector('input[type="password"]');
   var userField = $id('username') || document.querySelector('input[name="j_username"]') ||
     document.querySelector('input[type="email"]') || document.querySelector('input[name="username"]');
 
   if (passwordField) {
     var alert = alertText();
-    if (userField && !userField.readOnly) fill(userField, ${JSON.stringify(email)});
-    fill(passwordField, ${JSON.stringify(password)});
-    await sleep(80);
-    return done({ step: 'password', acted: submit(passwordField, 'button-proceed'), alert: alert });
+    if (userField && !userField.readOnly) typeInto(userField, ${JSON.stringify(email)});
+    typeInto(passwordField, ${JSON.stringify(password)});
+    await sleep(150);
+    var passwordBtn = $id('button-proceed') ||
+      (passwordField.form && passwordField.form.querySelector('button[type="submit"], input[type="submit"]'));
+    if (!passwordBtn) return done({ step: 'password', acted: false, alert: alert });
+    var clicked = await clickWhenEnabled(passwordBtn);
+    return done({ step: 'password', acted: clicked, alert: alert });
   }
   if (userField) {
     var alert2 = alertText();
-    fill(userField, ${JSON.stringify(email)});
-    await sleep(80);
-    return done({ step: 'email', acted: submit(userField, 'button-submit'), alert: alert2 });
-  }
-  // Shibboleth IdP interstitials (attribute-release consent, notices) use a standard
-  // "proceed" event button.
-  var proceed = document.querySelector('button[name="_eventId_proceed"], input[name="_eventId_proceed"]');
-  if (proceed) {
-    realClick(proceed);
-    return done({ step: 'proceed', acted: true });
+    typeInto(userField, ${JSON.stringify(email)});
+    await sleep(150);
+    var emailBtn = $id('button-submit') ||
+      (userField.form && userField.form.querySelector('button[type="submit"], input[type="submit"]'));
+    if (!emailBtn) return done({ step: 'email', acted: false, alert: alert2 });
+    var clicked2 = await clickWhenEnabled(emailBtn);
+    return done({ step: 'email', acted: clicked2, alert: alert2 });
   }
 
   return done({ step: 'other', acted: false });
-`;
-
-/** Submits a SAML hand-off form that didn't submit itself. */
-export const SUBMIT_TRANSIT = `
-  var field = document.querySelector('input[name="SAMLResponse"], input[name="SAMLRequest"]');
-  if (!field || !field.form) return false;
-  field.form.submit();
-  return true;
 `;
 
 // The site's "Déconnexion" lands on a dead-end SWITCHaai page telling the user to

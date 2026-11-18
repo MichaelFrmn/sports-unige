@@ -49,11 +49,17 @@ them itself using what was entered.
   (`expo-secure-store`) and are only ever typed into the site's own form.
 - With a remembered password, this stores your real university password on
   the device: a real increase in risk if the device itself is compromised.
-- Login pages are filled by looking for their fields, not per organisation:
-  Switch edu-ID's two-page flow (e-mail, then password; tested against saved
-  EPFL pages) and the standard one-page Shibboleth form (`j_username` /
-  `j_password`). Organisations with other forms, and MFA prompts, aren't
-  automated; the login screen then shows an error instead.
+- Matches exactly the flow the user goes through by hand: institution picker,
+  then the organisation's e-mail page, then its password page — built and
+  tested against the real saved pages for that flow, not guessed at. A
+  one-page `j_username`/`j_password` Shibboleth form (used by IdPs that don't
+  split e-mail and password) is also handled, by field rather than by
+  organisation. Anything else (MFA, a different form) shows an error on the
+  login screen instead of being guessed at.
+- Fields are filled through the input's native value setter and a full
+  focus/input/change/blur sequence, then the submit button is clicked once
+  it's enabled (up to 2s) — React-based login pages track field state
+  themselves and can ignore a plain `el.value = x`.
 - A refused password stops after one attempt and shows the page's own error
   message; nothing is retried automatically. Android can report a single page
   load as "finished" twice; a duplicate is ignored instead of being read as

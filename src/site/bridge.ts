@@ -5,7 +5,6 @@ import {
   PAGE_HELPERS,
   PROBE,
   READ_WAYF_ORGANISATIONS,
-  SUBMIT_TRANSIT,
   autoLoginStep,
   isWayf,
   loginUrlFor,
@@ -31,14 +30,10 @@ const MAX_SAME_AUTO_LOGIN_STEP = 1;
 // an alternating loop (e.g. password page -> logout-confirmation page -> password
 // page -> ...) would never repeat the same step twice in a row, so it would never
 // trip MAX_SAME_AUTO_LOGIN_STEP on its own and could otherwise retry forever,
-// reloading real pages on the site with no delay between attempts.
-// A full login is up to ~6 automatic steps (institution, SAML hand-off, e-mail,
-// password, consent, hand-off back), so this leaves headroom without allowing a loop.
-const MAX_AUTO_ACTIONS = 10;
-// How long to let a page move on by itself (auto-submitting form, JS redirect)
-// before treating it as stuck or unknown.
-const SETTLE_MS = 2500;
-const TRANSIT_TIMEOUT_MS = 8000;
+// reloading real pages on the site with no delay between attempts. The real flow
+// is institution -> e-mail -> password (3 steps), so this leaves headroom without
+// allowing a loop.
+const MAX_AUTO_ACTIONS = 6;
 // After filling and submitting a page, how long to wait for it to navigate.
 const SUBMIT_TIMEOUT_MS = 12000;
 
@@ -108,8 +103,7 @@ const STEP_ERRORS: Record<string, string> = {
   wayf: "Le site est revenu au choix de l'organisation.",
   email: 'La page de connexion a refusé l’e-mail. Elle affiche :',
   password: 'La page de connexion est revenue après l’envoi du mot de passe (refusé ?). Elle affiche :',
-  proceed: 'Une page de confirmation de la connexion revient en boucle.',
-  other: 'Étape de connexion non reconnue (par ex. double authentification). Page :',
+  other: 'Page de connexion non reconnue (par ex. double authentification). Elle affiche :',
 };
 
 function waitReady(): Promise<void> {
@@ -179,7 +173,6 @@ export const siteBridge = {
     if (seq === actedSeq) return;
     // The page navigated by itself while we were looking at it: the next onLoadEnd handles it.
     const moved = () => seq !== loadSeq;
-    const settle = () => new Promise((r) => setTimeout(r, SETTLE_MS));
 
     let probe: { url: string; app: boolean };
     try {
@@ -255,28 +248,7 @@ export const siteBridge = {
     // What to show the user if this step fails: the page's error message, else what it shows.
     const detail = result.alert || result.page;
 
-    if (result.step === 'transit') {
-      // SAML hand-off page: it submits itself. Only step in if it doesn't.
-      actedSeq = seq;
-      autoLoginActions += 1;
-      setTimeout(async () => {
-        if (moved()) return;
-        await exec(SUBMIT_TRANSIT).catch(() => undefined);
-        setTimeout(() => {
-          if (!moved()) failLogin('La connexion est restée bloquée sur une page de transfert.');
-        }, TRANSIT_TIMEOUT_MS);
-      }, TRANSIT_TIMEOUT_MS);
-      return;
-    }
-
-    if (result.step === 'other') {
-      // Possibly a page that redirects itself shortly (JS redirect, "please wait"): give it a moment.
-      await settle();
-      if (!moved()) failLogin(STEP_ERRORS.other, result.page);
-      return;
-    }
-
-    if (repeatedStep(result.step) || !result.acted) {
+    if (repeatedStep(result.step) || !result.acted || result.step === 'other') {
       failLogin(STEP_ERRORS[result.step] ?? STEP_ERRORS.other, detail);
       return;
     }
