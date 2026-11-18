@@ -26,7 +26,7 @@ export function SportsScreen({ navigation }: any) {
       <FlatList
         data={filtered}
         keyExtractor={(s) => s}
-        contentContainerStyle={{ padding: 16, paddingTop: 8 }}
+        contentContainerStyle={{ padding: 16, paddingTop: 0 }}
         renderItem={({ item }) => (
           <Pressable
             onPress={() => navigation.navigate('Slots', { sport: item })}
@@ -49,7 +49,7 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.colors.bg },
   search: {
     margin: 16,
-    marginBottom: 0,
+    marginBottom: 12,
     backgroundColor: theme.colors.surface,
     borderWidth: 1,
     borderColor: theme.colors.border,
@@ -73,6 +73,6 @@ const styles = StyleSheet.create({
   pressed: { opacity: 0.7 },
   sport: { flex: 1, fontSize: 15, fontWeight: '700', color: theme.colors.text },
   chevron: { fontSize: 22, color: theme.colors.textMuted },
-  error: { color: theme.colors.danger, marginHorizontal: 16, marginTop: 8 },
+  error: { color: theme.colors.danger, marginHorizontal: 16, marginBottom: 12 },
   empty: { textAlign: 'center', color: theme.colors.textMuted, marginTop: 40 },
 });
