@@ -269,8 +269,17 @@ export const READ_UNREGISTER_RESULT = `
 // page. Both are handled by looking for the fields rather than per-organisation code.
 
 export const autoLoginStep = (email: string, password: string) => `
+  // React-controlled inputs (this login page is React, per its data-testid attributes)
+  // intercept the native value setter to track their own state. A plain "el.value = x"
+  // plus a dispatched 'input' event can leave the DOM looking filled while React still
+  // believes the field is empty, so the real submit goes out with nothing in it — which
+  // the site then rejects without any visible error, since it's an empty field, not a
+  // typo. Going through the native setter first is the standard workaround.
+  var nativeValueSetter = window.HTMLInputElement &&
+    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value') &&
+    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
   var fill = function (el, val) {
-    el.value = val;
+    if (nativeValueSetter) { nativeValueSetter.call(el, val); } else { el.value = val; }
     el.dispatchEvent(new Event('input', { bubbles: true }));
     el.dispatchEvent(new Event('change', { bubbles: true }));
   };
