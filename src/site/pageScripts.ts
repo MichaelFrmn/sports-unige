@@ -20,7 +20,10 @@ export const PAGE_HELPERS = `
   };
   var $id = function (id) { return document.getElementById(id); };
   var sleep = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
-  var text = function (el) { return el ? el.textContent.replace(/\\s+/g, ' ').trim() : ''; };
+  // innerText (not textContent): textContent pulls in <script>/<style> contents too, which
+  // showed up verbatim in diagnostics ("function changeLanguage(lang){...}") instead of what
+  // the page actually displays. innerText also naturally skips hidden elements.
+  var text = function (el) { return el ? (el.innerText != null ? el.innerText : el.textContent).replace(/\\s+/g, ' ').trim() : ''; };
   var adfIdle = function () {
     var p = window.AdfPage && window.AdfPage.PAGE;
     return !p || typeof p.isSynchronizedWithServer !== 'function' || p.isSynchronizedWithServer();
