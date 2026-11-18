@@ -237,7 +237,7 @@ export const siteBridge = {
       return;
     }
 
-    let result: { step: string; acted: boolean; alert?: string; page?: string };
+    let result: { step: string; acted: boolean; alert?: string; page?: string; note?: string };
     try {
       result = await exec(autoLoginStep(creds.email, creds.password));
     } catch {
@@ -245,8 +245,10 @@ export const siteBridge = {
       return;
     }
 
-    // What to show the user if this step fails: the page's error message, else what it shows.
-    const detail = result.alert || result.page;
+    // What to show the user if this step fails: what the form itself did, then the page's
+    // error message (or what it shows) — enough to tell "never really submitted" (note
+    // says the button stayed disabled) apart from "the site sent it back".
+    const detail = [result.note, result.alert || result.page].filter(Boolean).join('\n');
 
     if (repeatedStep(result.step) || !result.acted || result.step === 'other') {
       failLogin(STEP_ERRORS[result.step] ?? STEP_ERRORS.other, detail);

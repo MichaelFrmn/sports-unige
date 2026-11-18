@@ -318,21 +318,37 @@ export const autoLoginStep = (email: string, password: string) => `
     if (userField && !userField.readOnly) typeInto(userField, ${JSON.stringify(email)});
     typeInto(passwordField, ${JSON.stringify(password)});
     await sleep(150);
+    // So a failure says exactly what happened, instead of the same wording for
+    // "never really submitted" (button stuck disabled) and "site sent it back".
+    var pwLen = passwordField.value ? passwordField.value.length : 0;
     var passwordBtn = $id('button-proceed') ||
       (passwordField.form && passwordField.form.querySelector('button[type="submit"], input[type="submit"]'));
-    if (!passwordBtn) return done({ step: 'password', acted: false, alert: alert });
+    if (!passwordBtn) {
+      return done({ step: 'password', acted: false, alert: alert, note: 'bouton introuvable (mot de passe: ' + pwLen + ' caractères)' });
+    }
+    var disabledBefore = !!passwordBtn.disabled;
     var clicked = await clickWhenEnabled(passwordBtn);
-    return done({ step: 'password', acted: clicked, alert: alert });
+    var note = 'mot de passe: ' + pwLen + ' caractères — bouton ' +
+      (disabledBefore ? 'désactivé au départ, ' : 'déjà actif, ') +
+      (clicked ? 'cliqué' : 'resté désactivé après 2s (jamais cliqué)');
+    return done({ step: 'password', acted: clicked, alert: alert, note: note });
   }
   if (userField) {
     var alert2 = alertText();
     typeInto(userField, ${JSON.stringify(email)});
     await sleep(150);
+    var mailLen = userField.value ? userField.value.length : 0;
     var emailBtn = $id('button-submit') ||
       (userField.form && userField.form.querySelector('button[type="submit"], input[type="submit"]'));
-    if (!emailBtn) return done({ step: 'email', acted: false, alert: alert2 });
+    if (!emailBtn) {
+      return done({ step: 'email', acted: false, alert: alert2, note: 'bouton introuvable (e-mail: ' + mailLen + ' caractères)' });
+    }
+    var disabledBefore2 = !!emailBtn.disabled;
     var clicked2 = await clickWhenEnabled(emailBtn);
-    return done({ step: 'email', acted: clicked2, alert: alert2 });
+    var note2 = 'e-mail: ' + mailLen + ' caractères — bouton ' +
+      (disabledBefore2 ? 'désactivé au départ, ' : 'déjà actif, ') +
+      (clicked2 ? 'cliqué' : 'resté désactivé après 2s (jamais cliqué)');
+    return done({ step: 'email', acted: clicked2, alert: alert2, note: note2 });
   }
 
   return done({ step: 'other', acted: false });
