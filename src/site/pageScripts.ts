@@ -263,38 +263,45 @@ export const READ_UNREGISTER_RESULT = `
   return msg ? { kind: 'error', text: msg } : null;
 `;
 
-// --- Auto-login: organisation login page(s). The institution picker (WAYF) is
-// skipped entirely, see loginUrlFor. bridge.ts drives one step per page load.
-// Exactly the flow the user described, built against the real saved pages:
-// e-mail page (Switch edu-ID "Login") -> password page (Switch edu-ID "Login 2").
-// Other Shibboleth IdPs commonly use a single j_username/j_password page instead
-// of splitting it in two, so both shapes are matched by field, not by page count.
-
-export const autoLoginStep = (email: string, password: string) => `
-  // This login page is React (data-testid attributes in the saved HTML). React
-  // overrides the native <input> value setter to track field state itself; setting
-  // el.value directly leaves the DOM looking filled while React's own state (what
-  // actually gets submitted) stays empty. Going through the native setter first,
-  // like a real keystroke would, is the standard workaround.
-  var setNativeValue = function (el, val) {
-    var proto = el.tagName === 'TEXTAREA' ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
-    var setter = Object.getOwnPropertyDescriptor(proto, 'value') && Object.getOwnPropertyDescriptor(proto, 'value').set;
-    if (setter) { setter.call(el, val); } else { el.value = val; }
-  };
+const LOGIN_FORM_HELPERS = `
   var typeInto = function (el, val) {
     el.focus();
-    setNativeValue(el, val);
+    el.value = val;
     el.dispatchEvent(new Event('input', { bubbles: true }));
     el.dispatchEvent(new Event('change', { bubbles: true }));
-    el.blur();
   };
-  // Some forms only enable the submit button once their own validation (often
-  // running on the 'input'/'blur' events just dispatched) has had a moment to react.
-  var clickWhenEnabled = async function (btn) {
-    for (var i = 0; i < 20 && btn.disabled; i++) await sleep(100);
-    realClick(btn);
-    return !btn.disabled;
+  // The two-step page's code box, recognised by what it says it is.
+  var findCodeField = function () {
+    return Array.prototype.find.call(
+      document.querySelectorAll('input:not([type]), input[type="text"], input[type="tel"], input[type="number"]'),
+      function (el) {
+        if (el.readOnly || el.disabled || el.id === 'username' || el.name === 'j_username' || !visible(el)) return false;
+        var label = el.labels && el.labels[0] ? text(el.labels[0]) : '';
+        var described = [el.name, el.id, el.placeholder, el.getAttribute('aria-label'), label].join(' ');
+        return el.autocomplete === 'one-time-code' || /code|otp|token/i.test(described);
+      }
+    );
   };
+  var rememberBox = function (field) { return field.form && field.form.querySelector('input[type="checkbox"]'); };
+`;
+
+// --- Auto-login: the steps a person goes through by hand, one per page: pick the
+// organisation in the dropdown, enter the e-mail, enter the password, and enter the
+// two-step code if asked (the code comes from the app's own screen). Any other page
+// (e.g. "Loading Session Information") moves on by itself and is left alone.
+//
+// A page can report "loaded" several times (see onLoadEnd in bridge.ts), so each page
+// is handled once, tracked on its window. A step already submitted during this attempt
+// is never submitted again: its page coming back means the site refused it.
+export const autoLoginStep = (
+  creds: { organisation: string; email: string; password: string },
+  submitted: string[]
+) => `
+  if (window.__usaLoginHandled) return { step: 'handled', acted: false };
+  window.__usaLoginHandled = true;
+  ${LOGIN_FORM_HELPERS}
+
+  var alreadySubmitted = ${JSON.stringify(submitted)};
   var alertText = function () {
     var el = Array.prototype.find.call(
       document.querySelectorAll('.alert-danger, .alert-error, .invalid-feedback, .text-danger, .form-error, .error, [role="alert"]'),
@@ -302,56 +309,78 @@ export const autoLoginStep = (email: string, password: string) => `
     );
     return el ? text(el) : '';
   };
-  // Every result says which page it was, so a failure can quote what the page showed.
-  var done = function (r) {
-    r.page = (document.title || '?') + ' — ' + location.hostname + ' — ' + text(document.body).slice(0, 200);
-    if (r.alert === undefined) r.alert = alertText();
-    return r;
+  var result = function (step, acted, alert) {
+    return {
+      step: step,
+      acted: acted,
+      alert: alert || alertText(),
+      page: (document.title || '?') + ' — ' + location.hostname + ' — ' + text(document.body).slice(0, 200)
+    };
+  };
+  // Reported before the click: the page may be gone before this script can return.
+  var claim = function (step) { post({ loginStep: step }); };
+  var submitField = async function (step, field, button) {
+    var btn = $id(button) || (field.form && field.form.querySelector('button[type="submit"], input[type="submit"]'));
+    if (!btn) return result(step, false);
+    await sleep(150);
+    claim(step);
+    realClick(btn);
+    return result(step, true);
   };
 
-  var passwordField = document.querySelector('input[type="password"]');
-  var userField = $id('username') || document.querySelector('input[name="j_username"]') ||
-    document.querySelector('input[type="email"]') || document.querySelector('input[name="username"]');
+  var picker = $id('userIdPSelection');
+  if (picker) {
+    if (alreadySubmitted.indexOf('wayf') >= 0) return result('wayf', false);
+    var wanted = ${JSON.stringify(creds.organisation)};
+    // The dropdown's own entries: clicking one selects it and presses "Continuer".
+    var entry = Array.prototype.find.call(document.querySelectorAll('[savedValue]'), function (e) {
+      return e.getAttribute('savedValue') === wanted;
+    });
+    if (!entry) return result('wayf', false, 'Organisation non proposée par le site.');
+    claim('wayf');
+    realClick(entry);
+    return result('wayf', true);
+  }
 
+  var passwordField = document.querySelector('input[type="password"]');
+  var userField = $id('username') || document.querySelector('input[name="j_username"]');
   if (passwordField) {
-    var alert = alertText();
-    if (userField && !userField.readOnly) typeInto(userField, ${JSON.stringify(email)});
-    typeInto(passwordField, ${JSON.stringify(password)});
-    await sleep(150);
-    // So a failure says exactly what happened, instead of the same wording for
-    // "never really submitted" (button stuck disabled) and "site sent it back".
-    var pwLen = passwordField.value ? passwordField.value.length : 0;
-    var passwordBtn = $id('button-proceed') ||
-      (passwordField.form && passwordField.form.querySelector('button[type="submit"], input[type="submit"]'));
-    if (!passwordBtn) {
-      return done({ step: 'password', acted: false, alert: alert, note: 'bouton introuvable (mot de passe: ' + pwLen + ' caractères)' });
-    }
-    var disabledBefore = !!passwordBtn.disabled;
-    var clicked = await clickWhenEnabled(passwordBtn);
-    var note = 'mot de passe: ' + pwLen + ' caractères — bouton ' +
-      (disabledBefore ? 'désactivé au départ, ' : 'déjà actif, ') +
-      (clicked ? 'cliqué' : 'resté désactivé après 2s (jamais cliqué)');
-    return done({ step: 'password', acted: clicked, alert: alert, note: note });
+    if (alreadySubmitted.indexOf('password') >= 0) return result('password', false);
+    if (userField && !userField.readOnly) typeInto(userField, ${JSON.stringify(creds.email)});
+    typeInto(passwordField, ${JSON.stringify(creds.password)});
+    return await submitField('password', passwordField, 'button-proceed');
+  }
+  var codeField = findCodeField();
+  if (codeField) {
+    var codeStep = result('code', false);
+    var box = rememberBox(codeField);
+    codeStep.rememberLabel = box ? (box.labels && box.labels[0] ? text(box.labels[0]) : 'Ne plus me demander') : '';
+    return codeStep;
   }
   if (userField) {
-    var alert2 = alertText();
-    typeInto(userField, ${JSON.stringify(email)});
-    await sleep(150);
-    var mailLen = userField.value ? userField.value.length : 0;
-    var emailBtn = $id('button-submit') ||
-      (userField.form && userField.form.querySelector('button[type="submit"], input[type="submit"]'));
-    if (!emailBtn) {
-      return done({ step: 'email', acted: false, alert: alert2, note: 'bouton introuvable (e-mail: ' + mailLen + ' caractères)' });
-    }
-    var disabledBefore2 = !!emailBtn.disabled;
-    var clicked2 = await clickWhenEnabled(emailBtn);
-    var note2 = 'e-mail: ' + mailLen + ' caractères — bouton ' +
-      (disabledBefore2 ? 'désactivé au départ, ' : 'déjà actif, ') +
-      (clicked2 ? 'cliqué' : 'resté désactivé après 2s (jamais cliqué)');
-    return done({ step: 'email', acted: clicked2, alert: alert2, note: note2 });
+    if (alreadySubmitted.indexOf('email') >= 0) return result('email', false);
+    typeInto(userField, ${JSON.stringify(creds.email)});
+    return await submitField('email', userField, 'button-submit');
   }
+  return result('other', false);
+`;
 
-  return done({ step: 'other', acted: false });
+/** Enters the two-step code on the official page. False if the form can't be used. */
+export const submitLoginCode = (code: string, remember: boolean) => `
+  ${LOGIN_FORM_HELPERS}
+  var field = findCodeField();
+  if (!field || !field.form) return false;
+  // The form can also hold a "reset two-step login" button: never press that one.
+  var btn = $id('button-proceed') || Array.prototype.find.call(field.form.elements, function (e) {
+    return e.type === 'submit' && !/réinitialiser|reset|annuler|cancel|retour/i.test(text(e) || e.value);
+  });
+  if (!btn) return false;
+  typeInto(field, ${JSON.stringify(code)});
+  var box = rememberBox(field);
+  if (box && box.checked !== ${JSON.stringify(remember)}) realClick(box);
+  await sleep(150);
+  realClick(btn);
+  return true;
 `;
 
 // The site's "Déconnexion" lands on a dead-end SWITCHaai page telling the user to
@@ -361,17 +390,7 @@ export const IS_LOGOUT_CONFIRMATION = `
   return /fermer tous les onglets/i.test(document.body ? document.body.textContent : '');
 `;
 
-
-// The SWITCHaai institution picker (WAYF) is a SAML discovery service: all it does
-// is send the browser back to the site's login handler with the chosen entityID.
-// Going there directly avoids driving the picker's JavaScript widget at all.
 export const isWayf = (url: string) => /^https:\/\/wayf\.switch\.ch\//.test(url);
-
-export const loginUrlFor = (entityId: string) =>
-  'https://wwwi.unige.ch/service/sport/Shibboleth.sso/Login?SAMLDS=1&entityID=' +
-  encodeURIComponent(entityId) +
-  '&target=' +
-  encodeURIComponent(HOME_URL);
 
 /** The picker's organisations, in its order, without the "recently used" duplicates. */
 export const READ_WAYF_ORGANISATIONS = `

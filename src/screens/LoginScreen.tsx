@@ -160,6 +160,64 @@ export function LoginScreen({ onSubmitted }: { onSubmitted: () => void }) {
   );
 }
 
+/** Asks for the two-step code; the hidden WebView enters it on the official page. */
+export function LoginCodeScreen({ onSubmitted }: { onSubmitted: () => void }) {
+  const request = useSyncExternalStore(siteBridge.subscribe, siteBridge.getLoginCodeRequest);
+  const [code, setCode] = useState('');
+  const [remember, setRemember] = useState(false);
+
+  const submit = () => {
+    if (!code.trim()) return;
+    onSubmitted();
+    siteBridge.submitLoginCode(code.trim(), remember);
+  };
+
+  return (
+    <SafeAreaView style={styles.screen}>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+          <Text style={styles.title}>Code de connexion</Text>
+          <Text style={styles.subtitle}>Ouvre ton app d'authentification pour voir le code.</Text>
+
+          <Text style={styles.label}>Code</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="123456"
+            placeholderTextColor={theme.colors.textMuted}
+            keyboardType="number-pad"
+            textContentType="oneTimeCode"
+            autoFocus
+            value={code}
+            onChangeText={setCode}
+            onSubmitEditing={submit}
+          />
+
+          {!!request?.rememberLabel && (
+            <View style={styles.rememberRow}>
+              <Text style={[styles.rememberText, styles.rememberLabel]}>{request.rememberLabel}</Text>
+              <Switch
+                value={remember}
+                onValueChange={setRemember}
+                trackColor={{ true: theme.colors.primary, false: theme.colors.border }}
+                thumbColor="#fff"
+              />
+            </View>
+          )}
+
+          {!!request?.message && <Text style={styles.error}>{request.message}</Text>}
+
+          <Pressable style={({ pressed }) => [styles.button, pressed && styles.pressed]} onPress={submit}>
+            <Text style={styles.buttonText}>Valider</Text>
+          </Pressable>
+          <Pressable style={styles.cancel} hitSlop={8} onPress={siteBridge.cancelLoginCode}>
+            <Text style={styles.pickerClose}>Annuler</Text>
+          </Pressable>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
+  );
+}
+
 /** Full-screen "logging in" state while the hidden WebView goes through the official pages. */
 export function LoggingIn() {
   return (
@@ -195,6 +253,8 @@ const styles = StyleSheet.create({
     marginTop: 20,
   },
   rememberText: { fontSize: 15, color: theme.colors.text, fontWeight: '600' },
+  rememberLabel: { flex: 1, marginRight: 12 },
+  cancel: { alignItems: 'center', marginTop: 20 },
   hint: { fontSize: 12, color: theme.colors.textMuted, marginTop: 4 },
   error: { color: theme.colors.danger, fontSize: 14, marginTop: 16 },
   button: {

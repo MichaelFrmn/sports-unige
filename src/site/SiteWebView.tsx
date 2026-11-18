@@ -23,10 +23,9 @@ export function SiteWebView() {
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents="none">
       <WebView<{}>
-        // A logout bumps the generation: the WebView remounts in incognito mode, which
-        // wipes all cookies on Android, so the next load needs a full fresh login.
+        // A logout bumps the generation: the WebView remounts without the login session.
         key={generation}
-        incognito={generation > 0}
+        incognito={siteBridge.getWipeAllCookies()}
         ref={siteBridge.attach}
         source={{ uri: HOME_URL }}
         userAgent={DESKTOP_UA}

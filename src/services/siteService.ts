@@ -16,30 +16,47 @@ import {
 // The only module screens use to reach the UNIGE site. Everything goes through
 // the logged-in WebView, so the site's own server stays authoritative.
 
+let siteTask: Promise<unknown> = Promise.resolve();
+
+/** Runs one whole flow at a time: both tabs share the same site page, and a flow spans several page steps. */
+function exclusive<T>(task: () => Promise<T>): Promise<T> {
+  const result = siteTask.then(task);
+  siteTask = result.catch(() => undefined);
+  return result;
+}
+
 /** The list/registration scripts need the home page; a past signup flow may have left us elsewhere. */
 async function ensureHome() {
   if (!(await siteBridge.run<boolean>(IS_HOME))) await siteBridge.reloadHome();
 }
 
-export async function listSports(): Promise<string[]> {
-  await ensureHome();
-  return siteBridge.run<string[]>(LIST_SPORTS);
+export function listSports(): Promise<string[]> {
+  return exclusive(async () => {
+    await ensureHome();
+    return siteBridge.run<string[]>(LIST_SPORTS);
+  });
 }
 
 type RawSlot = { description: string; date: string; registered: boolean; bookable: boolean };
 
-export async function listSlots(sport: string): Promise<Slot[]> {
-  await ensureHome();
-  const raw = await siteBridge.run<RawSlot[]>(searchSlots(sport));
-  return raw.map((r) => {
-    const date = parseSiteDate(r.date);
-    return { ...r, sport, date, siteDate: r.date, id: `${sport}|${date}|${r.description}` };
+export function listSlots(sport: string): Promise<Slot[]> {
+  return exclusive(async () => {
+    await ensureHome();
+    const raw = await siteBridge.run<RawSlot[]>(searchSlots(sport));
+    return raw.map((r) => {
+      const date = parseSiteDate(r.date);
+      return { ...r, sport, date, siteDate: r.date, id: `${sport}|${date}|${r.description}` };
+    });
   });
 }
 
 type RawRegistration = Omit<Registration, 'id' | 'price' | 'date' | 'siteDate'> & { price: string; date: string };
 
-export async function listMyRegistrations(opts: { fresh?: boolean } = {}): Promise<Registration[]> {
+export function listMyRegistrations(opts: { fresh?: boolean } = {}): Promise<Registration[]> {
+  return exclusive(() => readRegistrations(opts));
+}
+
+async function readRegistrations(opts: { fresh?: boolean } = {}): Promise<Registration[]> {
   if (opts.fresh) await siteBridge.reloadHome();
   else await ensureHome();
   const raw = await siteBridge.run<RawRegistration[]>(READ_REGISTRATIONS);
@@ -67,29 +84,35 @@ type FormPage =
  * Opens the site's signup form for a slot and returns its details. Nothing is booked yet.
  * A full slot is refused here already: the site shows "complet" instead of the form.
  */
-export async function openSignup(slot: Slot): Promise<SignupForm> {
-  await ensureHome();
-  await siteBridge.run(startSignup(slot.sport, slot.description, slot.siteDate));
-  const page = await siteBridge.poll<FormPage>(READ_SIGNUP_FORM, STEP_TIMEOUT_MS);
-  if (page.kind !== 'form') {
-    throw page.kind === 'full'
-      ? new SignupError('FULL', page.text || 'Cette activité est complète.')
-      : new SignupError('UNKNOWN', page.text || 'Inscription refusée par le site.');
-  }
-  const { kind: _kind, ...form } = page;
-  return { ...form, priceChf: parsePrice(form.price) };
+export function openSignup(slot: Slot): Promise<SignupForm> {
+  return exclusive(async () => {
+    await ensureHome();
+    await siteBridge.run(startSignup(slot.sport, slot.description, slot.siteDate));
+    const page = await siteBridge.poll<FormPage>(READ_SIGNUP_FORM, STEP_TIMEOUT_MS);
+    if (page.kind !== 'form') {
+      throw page.kind === 'full'
+        ? new SignupError('FULL', page.text || 'Cette activité est complète.')
+        : new SignupError('UNKNOWN', page.text || 'Inscription refusée par le site.');
+    }
+    const { kind: _kind, ...form } = page;
+    return { ...form, priceChf: parsePrice(form.price) };
+  });
 }
 
 /** Leaves the signup form without booking. */
 export function abortSignup(): Promise<void> {
-  return siteBridge.reloadHome();
+  return exclusive(() => siteBridge.reloadHome());
 }
 
 /**
  * Submits the open form ("Enregistrer"). The site decides: it may accept, or
  * answer that the slot is full. Returns the site's confirmation text.
  */
-export async function submitSignup(): Promise<string> {
+export function submitSignup(): Promise<string> {
+  return exclusive(runSubmitSignup);
+}
+
+async function runSubmitSignup(): Promise<string> {
   let submitError: unknown = null;
   try {
     const r = await siteBridge.run<{ clicked: boolean; error?: string }>(SUBMIT_SIGNUP);
@@ -125,7 +148,11 @@ export async function submitSignup(): Promise<string> {
 type Target = { sport: string; description: string; siteDate: string };
 
 /** Clicks "Se désinscrire" on the site for this registration. Returns the site's confirmation text. */
-export async function unregister(target: Target): Promise<string> {
+export function unregister(target: Target): Promise<string> {
+  return exclusive(() => runUnregister(target));
+}
+
+async function runUnregister(target: Target): Promise<string> {
   // A fresh table, so the row we click is the one the server knows about.
   await siteBridge.reloadHome();
 
@@ -152,7 +179,7 @@ export async function unregister(target: Target): Promise<string> {
   if (result?.kind === 'ok') return result.text;
   if (result?.kind === 'error') throw new SignupError('INVALID', result.text);
 
-  const stillThere = (await listMyRegistrations()).some(
+  const stillThere = (await readRegistrations()).some(
     (r) => r.sport === target.sport && r.description === target.description && r.siteDate === target.siteDate
   );
   if (!stillThere) return result?.text || 'Votre inscription a été annulée.';
@@ -161,7 +188,7 @@ export async function unregister(target: Target): Promise<string> {
     : new SignupError('UNKNOWN', result?.text || "Le site n'a pas confirmé la désinscription.");
 }
 
-/** Clicks the site's own "Déconnexion" link. Forces the next load to require a fresh login. */
+/** Ends the login session in the WebView. The next load requires a fresh login. */
 export function logout(): void {
   siteBridge.logout();
 }

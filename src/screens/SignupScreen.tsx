@@ -1,4 +1,5 @@
-import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import {
   View,
   Text,
@@ -35,16 +36,23 @@ export function SignupScreen({ route, navigation }: any) {
   const [submitting, setSubmitting] = useState(false);
   // Once submitted, the site has left the form by itself; leaving must not reload over it.
   const done = useRef(false);
+  // Only the latest opening counts: an older one's form may no longer be on the site page.
+  const attempt = useRef(0);
+  const focusedOnce = useRef(false);
 
   useLayoutEffect(() => {
     navigation.setOptions({ title: slot.sport });
   }, [navigation, slot.sport]);
 
   const open = () => {
+    const current = ++attempt.current;
     setError(null);
     openSignup(slot)
-      .then(setForm)
+      .then((f) => {
+        if (current === attempt.current) setForm(f);
+      })
       .catch((e) => {
+        if (current !== attempt.current) return;
         if (e instanceof SignupError && e.code === 'FULL') setFull(e.message);
         else setError(e instanceof Error ? e.message : String(e));
       });
@@ -57,6 +65,19 @@ export function SignupScreen({ route, navigation }: any) {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // The other tab shares the site page and may have left this form: reopen it on return.
+  useFocusEffect(
+    useCallback(() => {
+      if (focusedOnce.current && !done.current) {
+        setForm(null);
+        setFull(null);
+        open();
+      }
+      focusedOnce.current = true;
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [])
+  );
 
   if (full) {
     return (

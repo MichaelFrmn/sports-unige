@@ -6,15 +6,19 @@ import {
   PROBE,
   READ_WAYF_ORGANISATIONS,
   autoLoginStep,
+  submitLoginCode,
   isWayf,
-  loginUrlFor,
 } from './pageScripts';
 import { activeCredentials, forgetSession } from './credentials';
+import { clearSessionCookies } from './sessionCookies';
 import { ORGANISATIONS, Organisation } from './organisations';
 
 // 'login' means the app needs credentials from the native login screen: none are
 // available, auto-login is paused (after a logout), or the last attempt failed.
-export type SiteStatus = 'loading' | 'login' | 'ready';
+// 'code' means the site is waiting for the user's two-step code.
+export type SiteStatus = 'loading' | 'login' | 'code' | 'ready';
+
+export type LoginCodeRequest = { message: string; rememberLabel: string };
 
 type Pending = {
   resolve: (v: any) => void;
@@ -23,19 +27,11 @@ type Pending = {
 };
 
 const COMMAND_TIMEOUT_MS = 30000;
-// Landing on the same step again means the previous submit was refused (e.g. a wrong
-// password): report it instead of resubmitting.
-const MAX_SAME_AUTO_LOGIN_STEP = 1;
-// Backstop across the whole auto-login/bounce sequence, regardless of pattern —
-// an alternating loop (e.g. password page -> logout-confirmation page -> password
-// page -> ...) would never repeat the same step twice in a row, so it would never
-// trip MAX_SAME_AUTO_LOGIN_STEP on its own and could otherwise retry forever,
-// reloading real pages on the site with no delay between attempts. The real flow
-// is institution -> e-mail -> password (3 steps), so this leaves headroom without
-// allowing a loop.
-const MAX_AUTO_ACTIONS = 6;
-// After filling and submitting a page, how long to wait for it to navigate.
-const SUBMIT_TIMEOUT_MS = 12000;
+// Backstop on the pages handled in one login attempt. The real flow is about six:
+// institution, e-mail, password and the automatic pages between them.
+const MAX_AUTO_ACTIONS = 12;
+// How long a login may sit on one page before it is reported as stuck.
+const LOGIN_STALL_MS = 15000;
 
 let webView: Pick<WebView, 'injectJavaScript'> | null = null;
 let status: SiteStatus = 'loading';
@@ -45,28 +41,45 @@ let nextId = 1;
 let readyWaiters: (() => void)[] = [];
 // ADF pages are stateful, so commands must never overlap.
 let queue: Promise<unknown> = Promise.resolve();
-let autoLoginStepSeen: string | null = null;
-let autoLoginStepCount = 0;
+// Steps already submitted in this attempt; none is ever submitted twice, so a refused
+// password can't be retried into an account lockout.
+let submittedSteps: string[] = [];
 let autoLoginActions = 0;
+let lastLoginPage: string | undefined;
+let loginStallTimer: ReturnType<typeof setTimeout> | undefined;
+let loginCodeRequest: LoginCodeRequest | null = null;
+let loginCodeTried = false;
 // Set by an explicit logout: show the login screen instead of logging straight back in.
 let autoLoginPaused = false;
-// Bumped on logout; SiteWebView remounts its WebView in incognito mode, which on
-// Android wipes every cookie (UNIGE and Switch edu-ID sessions alike).
+// Bumped on logout; SiteWebView remounts its WebView, starting from the cookies left.
 let generation = 0;
+// Set when a logout couldn't remove only the session cookies: the remount then wipes
+// them all (incognito mode), including the remembered two-step login.
+let wipeAllCookies = false;
 // Why the last login attempt failed, shown on the native login screen.
 let loginError: string | null = null;
 // Read live from the site's institution picker; the bundled list until then.
 let organisations: Organisation[] = ORGANISATIONS;
 // Incremented on every page load, so async handlers can tell the page has since moved on.
 let loadSeq = 0;
-// The load we last acted on. Android can report the same page load as finished twice;
-// acting on it again would look like the site sent us back (e.g. "wrong password").
-let actedSeq = -1;
 
 function resetAutoLogin() {
-  autoLoginStepSeen = null;
-  autoLoginStepCount = 0;
+  submittedSteps = [];
   autoLoginActions = 0;
+  lastLoginPage = undefined;
+  loginCodeTried = false;
+  clearTimeout(loginStallTimer);
+}
+
+function watchLoginStall() {
+  clearTimeout(loginStallTimer);
+  loginStallTimer = setTimeout(
+    () => {
+      // Waiting for the user's code is not a stall.
+      if (status !== 'code') failLogin("La connexion n'avance plus. Dernière page :", lastLoginPage);
+    },
+    LOGIN_STALL_MS
+  );
 }
 
 function setStatus(s: SiteStatus) {
@@ -85,25 +98,17 @@ function setStatus(s: SiteStatus) {
 function failLogin(message: string, pageAlert?: string) {
   loginError = pageAlert ? `${message}
 ${pageAlert}` : message;
+  clearTimeout(loginStallTimer);
   autoLoginPaused = true;
   forgetSession();
   status = 'login';
   listeners.forEach((l) => l());
 }
 
-/** Counts consecutive visits to the same step; true when it came back (previous submit refused). */
-function repeatedStep(step: string): boolean {
-  autoLoginStepCount = step === autoLoginStepSeen ? autoLoginStepCount + 1 : 1;
-  autoLoginStepSeen = step;
-  autoLoginActions += 1;
-  return autoLoginStepCount > MAX_SAME_AUTO_LOGIN_STEP;
-}
-
 const STEP_ERRORS: Record<string, string> = {
-  wayf: "Le site est revenu au choix de l'organisation.",
-  email: 'La page de connexion a refusé l’e-mail. Elle affiche :',
-  password: 'La page de connexion est revenue après l’envoi du mot de passe (refusé ?). Elle affiche :',
-  other: 'Page de connexion non reconnue (par ex. double authentification). Elle affiche :',
+  wayf: "Le choix de l'organisation n'a pas abouti.",
+  email: "L'e-mail n'a pas été accepté. La page affiche :",
+  password: "Le mot de passe n'a pas été accepté. La page affiche :",
 };
 
 function waitReady(): Promise<void> {
@@ -148,8 +153,10 @@ function enqueue<T>(task: () => Promise<T>): Promise<T> {
 export const siteBridge = {
   getStatus: () => status,
   getGeneration: () => generation,
+  getWipeAllCookies: () => wipeAllCookies,
   getLoginError: () => loginError,
   getOrganisations: () => organisations,
+  getLoginCodeRequest: () => loginCodeRequest,
 
   subscribe(listener: () => void) {
     listeners.add(listener);
@@ -164,13 +171,17 @@ export const siteBridge = {
 
   onLoadStart() {
     loadSeq += 1;
-    setStatus('loading');
+    // After a failed login or a logout, the login screen stays up whatever the page does,
+    // and so does the code screen (the code page can report extra loads).
+    if (!autoLoginPaused && status !== 'code') setStatus('loading');
     rejectAll('La page du site a changé pendant le chargement. Réessayez.');
   },
 
+  // Not one call per page: on Android the WebView also reports history.pushState as a
+  // new load (the password page calls it), so a page can arrive here more than once.
+  // autoLoginStep handles each page only once.
   async onLoadEnd() {
     const seq = loadSeq;
-    if (seq === actedSeq) return;
     // The page navigated by itself while we were looking at it: the next onLoadEnd handles it.
     const moved = () => seq !== loadSeq;
 
@@ -193,7 +204,6 @@ export const siteBridge = {
 
     try {
       if (await exec<boolean>(IS_LOGOUT_CONFIRMATION)) {
-        actedSeq = seq;
         autoLoginActions += 1;
         webView?.injectJavaScript(`location.href = ${JSON.stringify(HOME_URL)}; true;`);
         return; // stay hidden; the resulting navigation triggers another onLoadEnd
@@ -219,55 +229,46 @@ export const siteBridge = {
     const creds = autoLoginPaused ? null : await activeCredentials();
     if (moved()) return;
     if (!creds) {
+      clearTimeout(loginStallTimer);
       setStatus('login');
       return;
     }
 
-    if (isWayf(probe.url)) {
-      if (!organisations.some((o) => o.entityId === creds.organisation)) {
-        failLogin('Organisation non proposée par le site.');
-        return;
-      }
-      if (repeatedStep('wayf')) {
-        failLogin(STEP_ERRORS.wayf);
-        return;
-      }
-      actedSeq = seq;
-      webView?.injectJavaScript(`location.href = ${JSON.stringify(loginUrlFor(creds.organisation))}; true;`);
-      return;
-    }
-
-    let result: { step: string; acted: boolean; alert?: string; page?: string; note?: string };
+    watchLoginStall();
+    let result: { step: string; acted: boolean; alert?: string; page?: string; rememberLabel?: string };
     try {
-      result = await exec(autoLoginStep(creds.email, creds.password));
+      result = await exec(autoLoginStep(creds, submittedSteps));
     } catch {
       if (!moved()) failLogin('La page de connexion ne répond pas.');
       return;
     }
+    if (result.step === 'handled') return;
 
-    // What to show the user if this step fails: what the form itself did, then the page's
-    // error message (or what it shows) — enough to tell "never really submitted" (note
-    // says the button stayed disabled) apart from "the site sent it back".
-    const detail = [result.note, result.alert || result.page].filter(Boolean).join('\n');
-
-    if (repeatedStep(result.step) || !result.acted || result.step === 'other') {
-      failLogin(STEP_ERRORS[result.step] ?? STEP_ERRORS.other, detail);
+    autoLoginActions += 1;
+    lastLoginPage = result.page;
+    if (result.step === 'code') {
+      loginCodeRequest = {
+        message: result.alert || (loginCodeTried ? "Ce code n'a pas été accepté." : ''),
+        rememberLabel: result.rememberLabel ?? '',
+      };
+      setStatus('code');
       return;
     }
-
-    // It filled and submitted the page: a navigation should follow. If it doesn't, say so
-    // instead of leaving the user on "Connexion en cours…" forever.
-    actedSeq = seq;
-    setTimeout(() => {
-      if (!moved()) failLogin("La page de connexion n'a pas réagi à l'envoi.", result.page);
-    }, SUBMIT_TIMEOUT_MS);
+    if (status === 'code') setStatus('loading');
+    // Submitted, or an automatic page: either way the next page load carries on.
+    if (result.acted || result.step === 'other') return;
+    failLogin(STEP_ERRORS[result.step], result.alert || result.page);
   },
 
   onMessage(e: WebViewMessageEvent) {
-    let msg: { id: number; ok: boolean; value?: unknown; error?: string };
+    let msg: { id: number; ok: boolean; value?: unknown; error?: string; loginStep?: string };
     try {
       msg = JSON.parse(e.nativeEvent.data);
     } catch {
+      return;
+    }
+    if (msg.loginStep) {
+      submittedSteps.push(msg.loginStep);
       return;
     }
     const p = pending.get(msg.id);
@@ -319,21 +320,43 @@ export const siteBridge = {
     autoLoginPaused = false;
     loginError = null;
     siteBridge.goHome();
+    watchLoginStall();
+  },
+
+  /** Enters the user's two-step code on the official page; it is never stored. */
+  async submitLoginCode(code: string, remember: boolean) {
+    loginCodeTried = true;
+    setStatus('loading');
+    watchLoginStall();
+    try {
+      if (!(await exec<boolean>(submitLoginCode(code, remember)))) {
+        failLogin("Impossible d'envoyer le code. La page affiche :", lastLoginPage);
+      }
+    } catch {
+      // The page moved on after the click: the next page load carries on.
+    }
+  },
+
+  cancelLoginCode() {
+    failLogin('Connexion annulée.');
   },
 
   /**
-   * Wipes the WebView's cookies (via a remount in incognito mode) and ends on the
-   * login screen with auto-login paused. The site's own "Déconnexion" can't do this:
-   * it leaves the Switch edu-ID session alive, so the next load signs straight back in.
+   * Removes the WebView's session cookies, remounts it and ends on the login screen with
+   * auto-login paused. The site's own "Déconnexion" can't do this: it leaves the Switch
+   * edu-ID session alive, so the next load signs straight back in. Cookies with an expiry
+   * date stay, so the site can still remember this device for two-step login.
    */
-  logout() {
+  async logout() {
     resetAutoLogin();
     autoLoginPaused = true;
     loginError = null;
     forgetSession();
     rejectAll('Déconnecté.');
-    generation += 1;
     status = 'loading';
+    listeners.forEach((l) => l());
+    wipeAllCookies = !(await clearSessionCookies());
+    generation += 1;
     listeners.forEach((l) => l());
   },
 

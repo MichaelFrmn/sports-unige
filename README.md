@@ -37,11 +37,7 @@ de moi"). The official pages are never shown: the hidden WebView goes through
 them itself using what was entered.
 
 - The organisation list is read live from the site's SWITCHaai institution
-  picker (bundled copy as a fallback). The picker itself is skipped: it's a
-  SAML discovery service that only sends the browser back to the site's login
-  handler with the chosen entityID, so the app goes to that URL directly
-  (`loginUrlFor`) instead of driving the picker's JavaScript widget.
-
+  picker (bundled copy as a fallback).
 - Organisation and e-mail are always remembered; the password only with
   "Se souvenir de moi". Without it, the password is kept in memory for the
   session (so the site's daily timeout is handled silently while the app is
@@ -49,28 +45,26 @@ them itself using what was entered.
   (`expo-secure-store`) and are only ever typed into the site's own form.
 - With a remembered password, this stores your real university password on
   the device: a real increase in risk if the device itself is compromised.
-- Matches exactly the flow the user goes through by hand: institution picker,
-  then the organisation's e-mail page, then its password page — built and
-  tested against the real saved pages for that flow, not guessed at. A
-  one-page `j_username`/`j_password` Shibboleth form (used by IdPs that don't
-  split e-mail and password) is also handled, by field rather than by
-  organisation. Anything else (MFA, a different form) shows an error on the
-  login screen instead of being guessed at.
-- Fields are filled through the input's native value setter and a full
-  focus/input/change/blur sequence, then the submit button is clicked once
-  it's enabled (up to 2s) — React-based login pages track field state
-  themselves and can ignore a plain `el.value = x`.
-- A refused password stops after one attempt and shows the page's own error
-  message; nothing is retried automatically. Android can report a single page
-  load as "finished" twice; a duplicate is ignored instead of being read as
-  the site sending the password page back (which would look like a refusal
-  that never happened). A submit that gets no reaction within 12s is reported
-  instead of leaving "Connexion en cours…" up forever.
-- The **logout button** (top-right of both tabs) remounts the WebView in
-  incognito mode, which on Android wipes all its cookies (the UNIGE session
-  and the Switch edu-ID one, which the site's own "Déconnexion" leaves alive),
-  and returns to the login screen. On iOS incognito only isolates that
-  WebView, so after an app restart you'd be logged in again.
+- The hidden WebView does what a person does by hand: clicks the organisation
+  in the picker's dropdown, fills the e-mail page, then the password page. A
+  one-page `j_username`/`j_password` form is handled too. Pages without any of
+  these (e.g. "Loading Session Information") move on by themselves and are
+  left alone.
+- Android reports `history.pushState` as a new page load, and the password
+  page calls it, so one page can trigger several load events. Each page is
+  handled once, tracked on its `window`.
+- No step is submitted twice in an attempt: a refused password stops there and
+  shows the page's own message. A login sitting on one page for 15s (a consent
+  page…) is reported with that page's content.
+- If the site asks for a two-step code, the app asks for it on its own screen
+  and enters it on the official page. The code is never stored.
+- The **logout button** (top-right of both tabs) deletes the WebView's session
+  cookies (the UNIGE and Switch edu-ID sessions, which the site's own
+  "Déconnexion" leaves alive) through `modules/site-cookies`, and returns to the
+  login screen. Cookies with an expiry date stay, so a remembered two-step login
+  survives. That module needs a real build: in Expo Go, and on iOS for now, logout
+  falls back to incognito mode. On Android this wipes all cookies; on iOS it only
+  isolates that WebView, so after an app restart you'd be logged in again.
 - `src/screens/LoginScreen.tsx` is the form, `src/site/organisations.ts` the
   organisation list, `src/site/credentials.ts` the storage, and `autoLoginStep`
   in `src/site/pageScripts.ts` the script that fills the official pages.

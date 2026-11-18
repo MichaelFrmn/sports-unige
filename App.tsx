@@ -11,7 +11,7 @@ import { SportsScreen } from './src/screens/SportsScreen';
 import { SlotsScreen } from './src/screens/SlotsScreen';
 import { SignupScreen } from './src/screens/SignupScreen';
 import { MyRegistrationsScreen } from './src/screens/MyRegistrationsScreen';
-import { LoginScreen, LoggingIn } from './src/screens/LoginScreen';
+import { LoginCodeScreen, LoginScreen, LoggingIn } from './src/screens/LoginScreen';
 import { SiteWebView, useSiteStatus } from './src/site/SiteWebView';
 import { logout } from './src/services/siteService';
 import { theme } from './src/theme';
@@ -42,12 +42,32 @@ function LogoutButton() {
   );
 }
 
+const stackOptions = { ...header, headerRight: () => <LogoutButton /> };
+
+function ActivitiesTab() {
+  return (
+    <Stack.Navigator screenOptions={stackOptions}>
+      <Stack.Screen name="Sports" component={SportsScreen} options={{ title: 'Activités' }} />
+      <Stack.Screen name="Slots" component={SlotsScreen} options={{ title: 'Séances' }} />
+      <Stack.Screen name="Signup" component={SignupScreen} options={{ title: 'Inscription' }} />
+    </Stack.Navigator>
+  );
+}
+
+function RegistrationsTab() {
+  return (
+    <Stack.Navigator screenOptions={stackOptions}>
+      <Stack.Screen name="Registrations" component={MyRegistrationsScreen} options={{ title: 'Mes inscriptions' }} />
+    </Stack.Navigator>
+  );
+}
+
 function Tabs() {
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
-        ...header,
-        headerRight: () => <LogoutButton />,
+        // Each tab has its own stack, which draws the top bar.
+        headerShown: false,
         lazy: false,
         tabBarActiveTintColor: theme.colors.primary,
         tabBarInactiveTintColor: theme.colors.textMuted,
@@ -64,8 +84,8 @@ function Tabs() {
         ),
       })}
     >
-      <Tab.Screen name="Activités" component={SportsScreen} />
-      <Tab.Screen name="Mes inscriptions" component={MyRegistrationsScreen} />
+      <Tab.Screen name="Activités" component={ActivitiesTab} />
+      <Tab.Screen name="Mes inscriptions" component={RegistrationsTab} />
     </Tab.Navigator>
   );
 }
@@ -79,10 +99,16 @@ function LoginGate() {
     if (status !== 'loading') setSubmitting(false);
   }, [status]);
 
-  if (status !== 'login' && !submitting) return null;
+  if (status !== 'login' && status !== 'code' && !submitting) return null;
   return (
     <View style={styles.overlay}>
-      {status === 'login' ? <LoginScreen onSubmitted={() => setSubmitting(true)} /> : <LoggingIn />}
+      {status === 'login' ? (
+        <LoginScreen onSubmitted={() => setSubmitting(true)} />
+      ) : status === 'code' ? (
+        <LoginCodeScreen onSubmitted={() => setSubmitting(true)} />
+      ) : (
+        <LoggingIn />
+      )}
     </View>
   );
 }
@@ -94,11 +120,7 @@ export default function App() {
       <SiteWebView />
       <NavigationContainer>
         <StatusBar style="light" />
-        <Stack.Navigator screenOptions={header}>
-          <Stack.Screen name="Tabs" component={Tabs} options={{ headerShown: false }} />
-          <Stack.Screen name="Slots" component={SlotsScreen} options={{ title: 'Séances' }} />
-          <Stack.Screen name="Signup" component={SignupScreen} options={{ title: 'Inscription' }} />
-        </Stack.Navigator>
+        <Tabs />
       </NavigationContainer>
       <LoginGate />
     </SafeAreaProvider>
