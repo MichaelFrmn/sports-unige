@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { NavigationContainer } from '@react-navigation/native';
-import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { createNativeStackNavigator, NativeStackHeaderProps } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { Header, HeaderBackButton, getHeaderTitle } from '@react-navigation/elements';
+import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Pressable, Alert, View, StyleSheet } from 'react-native';
 
@@ -42,7 +43,21 @@ function LogoutButton() {
   );
 }
 
-const stackOptions = { ...header, headerRight: () => <LogoutButton /> };
+// A JS header: Android's native one inside a tab shifts into place when the tab appears.
+function StackHeader({ back, options, route, navigation }: NativeStackHeaderProps) {
+  const insets = useSafeAreaInsets();
+  return (
+    <Header
+      {...header}
+      title={getHeaderTitle(options, route.name)}
+      headerStatusBarHeight={insets.top}
+      headerLeft={back ? (props) => <HeaderBackButton {...props} onPress={navigation.goBack} /> : undefined}
+      headerRight={() => <LogoutButton />}
+    />
+  );
+}
+
+const stackOptions = { header: (props: NativeStackHeaderProps) => <StackHeader {...props} /> };
 
 function ActivitiesTab() {
   return (
